@@ -1,0 +1,75 @@
+import type {
+  AppNode,
+  DesktopNode,
+  DesktopSettings,
+  PersistedDesktopState,
+  PersistedItemNode,
+  PersistedNode
+} from "../types";
+
+const storageKey = "desktop-layer-state-v1";
+
+export function loadState(): PersistedDesktopState | null {
+  try {
+    const raw = localStorage.getItem(storageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as PersistedDesktopState;
+    return parsed.version === 1 ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+export function saveState(nodes: DesktopNode[], settings: DesktopSettings) {
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(toPersistedState(nodes, settings)));
+  } catch (error) {
+    console.warn("Unable to persist desktop layout", error);
+  }
+}
+
+function toPersistedState(nodes: PersistedNode[] | DesktopNode[], settings: DesktopSettings): PersistedDesktopState {
+  return {
+    version: 1,
+    nodes: nodes.map(toPersistedNode),
+    settings
+  };
+}
+
+function toPersistedNode(node: PersistedNode | DesktopNode): PersistedNode {
+  if (node.type === "item") {
+    return toPersistedItem(node);
+  }
+
+  return {
+    type: "folder",
+    id: node.id,
+    name: node.name,
+    createdAt: node.createdAt,
+    appearance: node.appearance,
+    children: node.children.map(toPersistedItem)
+  };
+}
+
+function toPersistedItem(node: PersistedItemNode | AppNode): PersistedItemNode {
+  if ("launchId" in node) {
+    return {
+      type: "item",
+      id: node.id,
+      name: node.name,
+      path: node.path ?? null,
+      launchId: node.launchId
+    };
+  }
+
+  return {
+    type: "item",
+    id: node.id,
+    name: node.name,
+    path: node.path ?? null,
+    launchId: node.launchId ?? null
+  };
+}
