@@ -475,28 +475,48 @@ function renderAppPriorityControl(priority: DesktopSettings["appPriority"]) {
 
   meta.append(name, output);
 
-  const control = document.createElement("label");
-  control.className = "settings-select-wrap";
+  const control = document.createElement("div");
+  control.className = "settings-priority-select";
 
-  const select = document.createElement("select");
-  select.className = "settings-select";
-  select.dataset.settingAppPriority = "true";
+  const trigger = document.createElement("button");
+  trigger.type = "button";
+  trigger.className = "settings-priority-trigger";
+  trigger.dataset.settingPriorityTrigger = "true";
+  trigger.setAttribute("aria-haspopup", "listbox");
+  trigger.setAttribute("aria-expanded", "false");
+  trigger.textContent = output.textContent;
 
-  [
+  control.append(trigger);
+  row.append(meta, control);
+  return row;
+}
+
+export function renderSettingsPriorityPopover(priority: DesktopSettings["appPriority"]) {
+  const list = document.createElement("div");
+  list.className = "settings-priority-popover";
+  list.dataset.settingPriorityPopover = "true";
+  list.setAttribute("role", "listbox");
+
+  appPriorityOptions().forEach((option) => {
+    const item = document.createElement("button");
+    item.type = "button";
+    item.dataset.settingAppPriority = option.value;
+    item.classList.toggle("is-active", priority === option.value);
+    item.setAttribute("role", "option");
+    item.setAttribute("aria-selected", String(priority === option.value));
+    item.textContent = option.label;
+    list.append(item);
+  });
+
+  return list;
+}
+
+function appPriorityOptions() {
+  return [
     { value: "normal", label: "\u6b63\u5e38" },
     { value: "aboveNormal", label: "\u8f83\u9ad8" },
     { value: "high", label: "\u9ad8" }
-  ].forEach((option) => {
-    const item = document.createElement("option");
-    item.value = option.value;
-    item.selected = priority === option.value;
-    item.textContent = option.label;
-    select.append(item);
-  });
-
-  control.append(select);
-  row.append(meta, control);
-  return row;
+  ] as const;
 }
 
 function renderSettingControl(

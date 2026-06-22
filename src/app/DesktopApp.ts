@@ -11,6 +11,7 @@ import {
   renderFolderCover,
   renderFolderLayerContent,
   renderIcon,
+  renderSettingsPriorityPopover,
   renderSettingsLayer,
   renderRatioDialog
 } from "../render/components";
@@ -173,6 +174,7 @@ export class DesktopApp {
   private folderClosing = false;
   private settingsOpen = false;
   private settingsView: "main" | "layout" = "main";
+  private settingsPriorityMenuOpen = false;
   private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
   private renamingId: string | null = null;
@@ -322,6 +324,7 @@ export class DesktopApp {
     this.settingsLayer.addEventListener("click", (event) => this.onSettingsClick(event));
     this.settingsLayer.addEventListener("input", (event) => this.onSettingsInput(event));
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
+    this.settingsLayer.addEventListener("scroll", () => this.renderSettingsPriorityMenu(), true);
     this.contextMenuLayer.addEventListener("click", (event) => {
       if (this.ratioDialogTargetId) {
         this.onRatioDialogClick(event);
@@ -540,6 +543,7 @@ export class DesktopApp {
     this.settingsLayer.classList.toggle("is-open", this.settingsOpen);
 
     if (!this.settingsOpen) {
+      this.settingsPriorityMenuOpen = false;
       this.settingsLayer.replaceChildren();
       return;
     }
@@ -550,6 +554,37 @@ export class DesktopApp {
         view: this.settingsView
       })
     );
+    this.renderSettingsPriorityMenu();
+  }
+
+  private renderSettingsPriorityMenu() {
+    this.settingsLayer.querySelector("[data-setting-priority-popover]")?.remove();
+
+    const trigger = this.settingsLayer.querySelector<HTMLElement>("[data-setting-priority-trigger]");
+    trigger?.classList.toggle("is-open", this.settingsPriorityMenuOpen);
+    trigger?.setAttribute("aria-expanded", String(this.settingsPriorityMenuOpen));
+
+    if (!this.settingsPriorityMenuOpen || !trigger) {
+      return;
+    }
+
+    const rect = trigger.getBoundingClientRect();
+    const popover = renderSettingsPriorityPopover(this.store.getSettings().appPriority);
+    const width = rect.width;
+    const gap = 8;
+    const edge = 10;
+    const estimatedHeight = 126;
+    const left = Math.min(Math.max(edge, rect.left), Math.max(edge, window.innerWidth - width - edge));
+    const below = rect.bottom + gap;
+    const top =
+      below + estimatedHeight > window.innerHeight - edge
+        ? Math.max(edge, rect.top - estimatedHeight - gap)
+        : below;
+
+    popover.style.left = `${Math.round(left)}px`;
+    popover.style.top = `${Math.round(top)}px`;
+    popover.style.width = `${Math.round(width)}px`;
+    this.settingsLayer.append(popover);
   }
 
   private renderContextMenu() {
@@ -2165,9 +2200,18 @@ export class DesktopApp {
     const viewButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-settings-view]");
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
     const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
+    const priorityTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-priority-trigger]");
+    const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
+    const priorityPopover = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-priority-popover]");
+
+    if (!priorityTrigger && !priorityPopover && this.settingsPriorityMenuOpen) {
+      this.settingsPriorityMenuOpen = false;
+      this.renderSettingsPriorityMenu();
+    }
 
     if (reset) {
       this.cancelSettingsPreview();
+      this.settingsPriorityMenuOpen = false;
       this.store.updateSettings(defaultDesktopSettings);
       void setAppProcessPriority(defaultDesktopSettings.appPriority);
       return;
@@ -2175,6 +2219,7 @@ export class DesktopApp {
 
     if (viewButton?.dataset.settingsView === "main" || viewButton?.dataset.settingsView === "layout") {
       this.cancelSettingsPreview();
+      this.settingsPriorityMenuOpen = false;
       this.settingsView = viewButton.dataset.settingsView;
       this.renderSettingsLayer();
       return;
@@ -2183,6 +2228,24 @@ export class DesktopApp {
     if (layoutModeButton?.dataset.settingLayoutMode === "auto" || layoutModeButton?.dataset.settingLayoutMode === "free") {
       this.cancelSettingsPreview();
       this.switchDesktopLayoutMode(layoutModeButton.dataset.settingLayoutMode);
+      return;
+    }
+
+    if (priorityTrigger) {
+      this.settingsPriorityMenuOpen = !this.settingsPriorityMenuOpen;
+      this.renderSettingsPriorityMenu();
+      return;
+    }
+
+    if (priorityButton) {
+      const appPriority = priorityButton.dataset.settingAppPriority;
+      if (isAppProcessPriority(appPriority)) {
+        this.cancelSettingsPreview();
+        this.settingsPriorityMenuOpen = false;
+        this.store.updateSettings({ appPriority });
+        void setAppProcessPriority(appPriority);
+        this.renderSettingsLayer();
+      }
       return;
     }
 
@@ -2206,6 +2269,7 @@ export class DesktopApp {
     this.cancelSettingsPreview();
     this.settingsOpen = false;
     this.settingsView = "main";
+    this.settingsPriorityMenuOpen = false;
     this.renderSettingsLayer();
   }
 
@@ -2220,17 +2284,6 @@ export class DesktopApp {
   }
 
   private onSettingsChange(event: Event) {
-    const prioritySelect = (event.target as HTMLElement).closest<HTMLSelectElement>("[data-setting-app-priority]");
-    if (prioritySelect) {
-      const appPriority = prioritySelect.value;
-      if (isAppProcessPriority(appPriority)) {
-        this.cancelSettingsPreview();
-        this.store.updateSettings({ appPriority });
-        void setAppProcessPriority(appPriority);
-      }
-      return;
-    }
-
     const input = (event.target as HTMLElement).closest<HTMLInputElement>("[data-setting-range]");
     const key = input?.dataset.settingRange;
     if (!input || !key || !(key in this.getSettingsValueSource())) {
