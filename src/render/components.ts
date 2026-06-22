@@ -39,7 +39,7 @@ interface FolderLayerRenderOptions {
 export function renderDesktopNode(
   node: DesktopNode,
   slot: LayoutSlot,
-  selectedId: string | null,
+  selectedIds: ReadonlySet<string>,
   renamingId: string | null,
   openingIds: ReadonlySet<string>,
   settings: DesktopSettings
@@ -55,7 +55,7 @@ export function renderDesktopNode(
   tile.setAttribute("tabindex", "0");
   tile.setAttribute("aria-label", node.name);
 
-  if (selectedId === node.id) {
+  if (selectedIds.has(node.id)) {
     tile.classList.add("is-selected");
   }
 

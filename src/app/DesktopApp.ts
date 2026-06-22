@@ -84,12 +84,31 @@ interface ActiveDrag {
   targetRect: DOMRect | null;
   targetElement: HTMLElement | null;
   targetSnapshots: DragTargetSnapshot[];
+  groupItems: DragGroupItem[];
   committing: boolean;
+}
+
+interface DragGroupItem {
+  id: string;
+  element: HTMLElement;
+  baseX: number;
+  baseY: number;
+  width: number;
+  height: number;
 }
 
 interface DragTargetSnapshot {
   id: string;
   rect: DOMRect;
+}
+
+interface Rect {
+  left: number;
+  top: number;
+  right: number;
+  bottom: number;
+  width: number;
+  height: number;
 }
 
 interface FolderSwipe {
@@ -101,6 +120,17 @@ interface FolderSwipe {
   pageCount: number;
   width: number;
   started: boolean;
+}
+
+interface MarqueeSelection {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  currentX: number;
+  currentY: number;
+  started: boolean;
+  additive: boolean;
+  initialSelection: Set<string>;
 }
 
 type ContextMenuState =
@@ -121,8 +151,10 @@ export class DesktopApp {
   private readonly folderLayer: HTMLElement;
   private readonly settingsLayer: HTMLElement;
   private readonly contextMenuLayer: HTMLElement;
+  private readonly selectionMarquee: HTMLElement;
   private layout = new Map<string, LayoutSlot>();
   private selectedId: string | null = null;
+  private selectedIds = new Set<string>();
   private openFolderId: string | null = null;
   private renderedFolderId: string | null = null;
   private hiddenOpenFolderTileId: string | null = null;
@@ -149,6 +181,7 @@ export class DesktopApp {
   private fullDesktopLoadInFlight = false;
   private drag: ActiveDrag | null = null;
   private folderSwipe: FolderSwipe | null = null;
+  private marquee: MarqueeSelection | null = null;
   private suppressNextClick = false;
   private suppressStoreRender = false;
   private settingsPreviewFrame: number | null = null;
@@ -165,12 +198,14 @@ export class DesktopApp {
       <section class="folder-layer"></section>
       <section class="settings-layer"></section>
       <section class="context-menu-layer"></section>
+      <div class="selection-marquee" hidden></div>
     `;
 
     this.grid = this.root.querySelector(".desktop-grid")!;
     this.folderLayer = this.root.querySelector(".folder-layer")!;
     this.settingsLayer = this.root.querySelector(".settings-layer")!;
     this.contextMenuLayer = this.root.querySelector(".context-menu-layer")!;
+    this.selectionMarquee = this.root.querySelector(".selection-marquee")!;
 
     this.store.subscribe(() => {
       if (!this.suppressStoreRender) {
@@ -308,9 +343,10 @@ export class DesktopApp {
     const settings = fitDesktopSettings(this.store.getSettings(), nodes, window.innerWidth, window.innerHeight);
     applyDesktopSettings(settings);
     this.layout = computeDesktopLayout(nodes, window.innerWidth, window.innerHeight, settings);
+    const selectedIds = this.desktopSelectionForRender();
     this.grid.replaceChildren(
       ...nodes.map((node) =>
-        renderDesktopNode(node, this.layout.get(node.id)!, this.selectedId, this.renamingId, this.openingIds, settings)
+        renderDesktopNode(node, this.layout.get(node.id)!, selectedIds, this.renamingId, this.openingIds, settings)
       )
     );
     this.renderFolderLayer();
@@ -497,6 +533,46 @@ export class DesktopApp {
     );
   }
 
+  private desktopSelectionForRender() {
+    const selected = new Set(this.selectedIds);
+    if (this.selectedId) {
+      selected.add(this.selectedId);
+    }
+    return selected;
+  }
+
+  private setDesktopSelection(ids: Iterable<string>, primaryId?: string | null) {
+    const nodes = new Set(this.store.getNodes().map((node) => node.id));
+    const next = Array.from(new Set(ids)).filter((id) => nodes.has(id));
+    this.selectedIds = new Set(next);
+    this.selectedId =
+      primaryId && this.selectedIds.has(primaryId)
+        ? primaryId
+        : next.length > 0
+          ? next[next.length - 1]
+          : null;
+    this.selectedFolderChild = null;
+  }
+
+  private selectSingleDesktopNode(id: string | null) {
+    if (!id) {
+      this.clearDesktopSelection();
+      return;
+    }
+
+    this.setDesktopSelection([id], id);
+  }
+
+  private clearDesktopSelection() {
+    this.selectedId = null;
+    this.selectedIds.clear();
+  }
+
+  private clearAllSelection() {
+    this.clearDesktopSelection();
+    this.selectedFolderChild = null;
+  }
+
   private onDesktopClick(event: MouseEvent) {
     if (this.consumeSuppressedClick()) {
       return;
@@ -514,7 +590,7 @@ export class DesktopApp {
 
     const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
     if (!tile) {
-      this.selectedId = null;
+      this.clearDesktopSelection();
       this.render();
     }
   }
@@ -551,6 +627,7 @@ export class DesktopApp {
     const node = this.findNode(id ?? "");
     const slot = id ? this.layout.get(id) : null;
     if (!tile || !id || !node || !slot) {
+      this.beginDesktopMarquee(event);
       return;
     }
 
@@ -558,27 +635,37 @@ export class DesktopApp {
       return;
     }
 
-    this.previewDesktopPress(node, tile);
+    const groupNodeIds = this.desktopDragGroupForNode(id);
+    if (groupNodeIds.length <= 1) {
+      this.previewDesktopPress(node, tile);
+    }
     this.beginDrag({
       source: { type: "desktop", nodeId: id },
       event,
       element: tile,
       baseX: slot.x,
       baseY: slot.y,
-      floating: false
+      floating: false,
+      groupNodeIds
     });
+  }
+
+  private desktopDragGroupForNode(nodeId: string) {
+    if (this.selectedIds.size <= 1 || !this.selectedIds.has(nodeId)) {
+      return [nodeId];
+    }
+
+    return this.store
+      .getNodes()
+      .map((node) => node.id)
+      .filter((id) => this.selectedIds.has(id));
   }
 
   private previewDesktopPress(node: DesktopNode, tile: HTMLElement) {
     this.closeContextMenu();
     this.selectedFolderChild = null;
     this.renamingId = null;
-
-    if (node.type !== "item") {
-      return;
-    }
-
-    this.selectedId = node.id;
+    this.selectSingleDesktopNode(node.id);
     this.grid.querySelectorAll(".desktop-tile.is-selected").forEach((element) => {
       if (element !== tile) {
         element.classList.remove("is-selected");
@@ -587,9 +674,146 @@ export class DesktopApp {
     tile.classList.add("is-selected");
   }
 
+  private beginDesktopMarquee(event: PointerEvent) {
+    if ((event.target as HTMLElement).closest("[data-rename-id]")) {
+      return;
+    }
+
+    this.closeContextMenu();
+    this.renamingId = null;
+    this.selectedFolderChild = null;
+    this.marquee = {
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      currentX: event.clientX,
+      currentY: event.clientY,
+      started: false,
+      additive: event.ctrlKey || event.shiftKey,
+      initialSelection: new Set(this.desktopSelectionForRender())
+    };
+
+    try {
+      this.grid.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Window listeners below keep the marquee alive if capture is unavailable.
+    }
+
+    window.addEventListener("pointermove", this.onMarqueePointerMove);
+    window.addEventListener("pointerup", this.onMarqueePointerUp, { once: true });
+    window.addEventListener("pointercancel", this.onMarqueePointerCancel, { once: true });
+    window.addEventListener("blur", this.onMarqueeWindowBlur, { once: true });
+  }
+
+  private readonly onMarqueePointerMove = (event: PointerEvent) => {
+    const marquee = this.marquee;
+    if (!marquee || event.pointerId !== marquee.pointerId) {
+      return;
+    }
+
+    marquee.currentX = event.clientX;
+    marquee.currentY = event.clientY;
+    const moved = Math.hypot(marquee.currentX - marquee.startX, marquee.currentY - marquee.startY);
+    if (!marquee.started) {
+      if (moved < 5) {
+        return;
+      }
+
+      marquee.started = true;
+      if (!marquee.additive) {
+        this.clearDesktopSelection();
+      }
+      this.selectionMarquee.hidden = false;
+    }
+
+    event.preventDefault();
+    const rect = normalizedRect(marquee.startX, marquee.startY, marquee.currentX, marquee.currentY);
+    this.paintSelectionMarquee(rect);
+    this.updateMarqueeSelection(rect, marquee);
+  };
+
+  private readonly onMarqueePointerUp = (event: PointerEvent) => {
+    const marquee = this.marquee;
+    if (!marquee || event.pointerId !== marquee.pointerId) {
+      return;
+    }
+
+    this.removeMarqueeListeners();
+    const wasStarted = marquee.started;
+    this.marquee = null;
+    this.hideSelectionMarquee();
+    if (wasStarted) {
+      this.suppressNextClick = true;
+      window.setTimeout(() => {
+        this.suppressNextClick = false;
+      }, 0);
+    }
+  };
+
+  private readonly onMarqueePointerCancel = () => {
+    this.cancelDesktopMarquee();
+  };
+
+  private readonly onMarqueeWindowBlur = () => {
+    this.cancelDesktopMarquee();
+  };
+
+  private cancelDesktopMarquee() {
+    this.removeMarqueeListeners();
+    this.marquee = null;
+    this.hideSelectionMarquee();
+  }
+
+  private removeMarqueeListeners() {
+    window.removeEventListener("pointermove", this.onMarqueePointerMove);
+    window.removeEventListener("pointerup", this.onMarqueePointerUp);
+    window.removeEventListener("pointercancel", this.onMarqueePointerCancel);
+    window.removeEventListener("blur", this.onMarqueeWindowBlur);
+  }
+
+  private paintSelectionMarquee(rect: Rect) {
+    this.selectionMarquee.style.left = `${rect.left}px`;
+    this.selectionMarquee.style.top = `${rect.top}px`;
+    this.selectionMarquee.style.width = `${rect.width}px`;
+    this.selectionMarquee.style.height = `${rect.height}px`;
+  }
+
+  private hideSelectionMarquee() {
+    this.selectionMarquee.hidden = true;
+    this.selectionMarquee.removeAttribute("style");
+  }
+
+  private updateMarqueeSelection(rect: Rect, marquee: MarqueeSelection) {
+    const selected = new Set(marquee.additive ? marquee.initialSelection : []);
+    let primaryId: string | null = null;
+
+    this.grid.querySelectorAll<HTMLElement>("[data-node-id]").forEach((tile) => {
+      const id = tile.dataset.nodeId;
+      if (!id) {
+        return;
+      }
+
+      if (rectsIntersect(rect, tile.getBoundingClientRect())) {
+        selected.add(id);
+        primaryId = id;
+      }
+    });
+
+    this.setDesktopSelection(selected, primaryId);
+    this.applyDesktopSelectionToDom();
+  }
+
+  private applyDesktopSelectionToDom() {
+    const selected = this.desktopSelectionForRender();
+    this.grid.querySelectorAll<HTMLElement>("[data-node-id]").forEach((tile) => {
+      const id = tile.dataset.nodeId;
+      tile.classList.toggle("is-selected", Boolean(id && selected.has(id)));
+    });
+  }
+
   private previewFolderChildPress(folderId: string, childId: string, item: HTMLElement) {
     this.closeContextMenu();
-    this.selectedId = null;
+    this.clearDesktopSelection();
     this.renamingFolderChild = null;
     this.selectedFolderChild = { folderId, childId };
     this.folderLayer.querySelectorAll(".folder-item.is-selected").forEach((element) => {
@@ -610,7 +834,7 @@ export class DesktopApp {
     if (tile?.dataset.nodeId) {
       const node = this.findNode(tile.dataset.nodeId);
       if (node?.type === "item") {
-        this.selectedId = node.id;
+        this.selectSingleDesktopNode(node.id);
         this.contextMenu = null;
         this.render();
         void this.openNativeContextMenu(node, event.clientX, event.clientY, {
@@ -622,13 +846,13 @@ export class DesktopApp {
         return;
       }
 
-      this.selectedId = tile.dataset.nodeId;
+      this.selectSingleDesktopNode(tile.dataset.nodeId);
       this.contextMenu = { type: "item", x: event.clientX, y: event.clientY, nodeId: tile.dataset.nodeId };
       this.render();
       return;
     }
 
-    this.selectedId = null;
+    this.clearDesktopSelection();
     this.contextMenu = null;
     this.render();
     void this.openNativeDesktopContextMenu(event.clientX, event.clientY);
@@ -715,7 +939,7 @@ export class DesktopApp {
     }
 
     drag.element.classList.remove("is-selected");
-    this.selectedFolderChild = null;
+    this.clearAllSelection();
     this.drag = null;
     this.beginFolderSwipe(event, { startX: drag.startX, startY: drag.startY });
     this.onFolderSwipeMove(event);
@@ -834,7 +1058,7 @@ export class DesktopApp {
 
     this.settingsOpen = false;
     this.renderSettingsLayer();
-    this.selectedId = null;
+    this.clearDesktopSelection();
     this.selectedFolderChild = { folderId, childId };
     this.renderFolderLayer();
     void this.openNativeContextMenu(child, event.clientX, event.clientY, {
@@ -853,6 +1077,7 @@ export class DesktopApp {
     baseX: number;
     baseY: number;
     floating: boolean;
+    groupNodeIds?: string[];
   }) {
     try {
       (options.event.currentTarget as HTMLElement | null)?.setPointerCapture?.(options.event.pointerId);
@@ -861,6 +1086,10 @@ export class DesktopApp {
     }
 
     const rect = options.element.getBoundingClientRect();
+    const groupItems =
+      options.source.type === "desktop"
+        ? this.captureDesktopDragGroup(options.groupNodeIds ?? [options.source.nodeId])
+        : [];
     this.drag = {
       source: options.source,
       pointerId: options.event.pointerId,
@@ -882,6 +1111,7 @@ export class DesktopApp {
       targetRect: null,
       targetElement: null,
       targetSnapshots: [],
+      groupItems,
       committing: false
     };
 
@@ -889,6 +1119,32 @@ export class DesktopApp {
     window.addEventListener("pointerup", this.onPointerUp, { once: true });
     window.addEventListener("pointercancel", this.onPointerCancel, { once: true });
     window.addEventListener("blur", this.onWindowBlur, { once: true });
+  }
+
+  private captureDesktopDragGroup(nodeIds: string[]) {
+    const uniqueIds = Array.from(new Set(nodeIds));
+    if (uniqueIds.length <= 1) {
+      return [];
+    }
+
+    return uniqueIds
+      .map((id): DragGroupItem | null => {
+        const element = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
+        const slot = this.layout.get(id);
+        if (!element || !slot) {
+          return null;
+        }
+
+        return {
+          id,
+          element,
+          baseX: slot.x,
+          baseY: slot.y,
+          width: slot.width,
+          height: slot.height
+        };
+      })
+      .filter((item): item is DragGroupItem => Boolean(item));
   }
 
   private readonly onPointerMove = (event: PointerEvent) => {
@@ -923,10 +1179,13 @@ export class DesktopApp {
       }
       drag.started = true;
       drag.targetSnapshots = this.captureMergeTargets(drag);
-      this.selectedId = null;
-      this.selectedFolderChild = null;
-      drag.element.classList.remove("is-selected");
-      drag.element.classList.add("is-dragging");
+      if (this.isDesktopGroupDrag(drag)) {
+        drag.groupItems.forEach((item) => item.element.classList.add("is-dragging"));
+      } else {
+        this.clearAllSelection();
+        drag.element.classList.remove("is-selected");
+        drag.element.classList.add("is-dragging");
+      }
     }
 
     this.scheduleDragFrame();
@@ -985,9 +1244,13 @@ export class DesktopApp {
     let focusAfterRender: string | null = null;
     this.suppressStoreRender = true;
     try {
-      if (drag.started && drag.source.type === "folder") {
-        this.selectedId = drag.source.childId;
-        this.selectedFolderChild = null;
+      if (this.isDesktopGroupDrag(drag)) {
+        const groupIds = drag.groupItems.map((item) => item.id);
+        this.setDesktopSelection(groupIds, drag.source.type === "desktop" ? drag.source.nodeId : groupIds[0]);
+        focusAfterRender = this.selectedId;
+        changed = this.store.moveDesktopNodes(groupIds, this.desktopInsertionIndex(drag.currentX, drag.currentY));
+      } else if (drag.started && drag.source.type === "folder") {
+        this.selectSingleDesktopNode(drag.source.childId);
         this.renamingFolderChild = null;
         focusAfterRender = drag.source.childId;
         changed = this.store.moveFolderChildToDesktop(
@@ -996,8 +1259,7 @@ export class DesktopApp {
           this.desktopInsertionIndex(drag.currentX, drag.currentY)
         );
       } else if (drag.started && drag.source.type === "desktop") {
-        this.selectedId = drag.source.nodeId;
-        this.selectedFolderChild = null;
+        this.selectSingleDesktopNode(drag.source.nodeId);
         changed = this.store.moveDesktopNode(
           drag.source.nodeId,
           this.desktopInsertionIndex(drag.currentX, drag.currentY)
@@ -1014,7 +1276,7 @@ export class DesktopApp {
       }, 0);
     }
 
-    drag.element.classList.remove("is-dragging");
+    this.clearDragVisualState(drag);
     if (drag.floating) {
       drag.element.remove();
     }
@@ -1058,6 +1320,14 @@ export class DesktopApp {
         active.targetSnapshots = this.captureMergeTargets(active);
       }
 
+      if (this.isDesktopGroupDrag(active)) {
+        this.updateDesktopGroupDragFrame(active);
+        if (didAutoScroll && this.drag === active) {
+          this.scheduleDragFrame();
+        }
+        return;
+      }
+
       this.updateMergeTarget(active.currentX, active.currentY);
       const magneticTarget = active.targetId && active.targetRect ? active.targetRect : null;
       const transform = dragFrameTransform({
@@ -1088,6 +1358,21 @@ export class DesktopApp {
     });
   }
 
+  private updateDesktopGroupDragFrame(drag: ActiveDrag) {
+    const dx = drag.currentX - drag.startX;
+    const dy = drag.currentY - drag.startY;
+    const offsetX = this.root.scrollLeft - drag.startScrollLeft;
+    const offsetY = this.root.scrollTop - drag.startScrollTop;
+
+    drag.groupItems.forEach((item) => {
+      item.element.style.transform = toTransformStyle({
+        x: item.baseX + dx + offsetX,
+        y: item.baseY + dy + offsetY,
+        scale: 1.025
+      });
+    });
+  }
+
   private autoScrollDrag(drag: ActiveDrag) {
     const delta = dragAutoScrollDelta(
       drag.currentX,
@@ -1106,6 +1391,10 @@ export class DesktopApp {
     this.root.scrollTop = clampScroll(beforeTop + delta.y, 0, this.root.scrollHeight - this.root.clientHeight);
 
     return this.root.scrollLeft !== beforeLeft || this.root.scrollTop !== beforeTop;
+  }
+
+  private isDesktopGroupDrag(drag: ActiveDrag) {
+    return drag.source.type === "desktop" && drag.groupItems.length > 1;
   }
 
   private promoteFolderDrag(drag: ActiveDrag) {
@@ -1158,6 +1447,10 @@ export class DesktopApp {
   }
 
   private captureMergeTargets(drag: ActiveDrag): DragTargetSnapshot[] {
+    if (this.isDesktopGroupDrag(drag)) {
+      return [];
+    }
+
     const source =
       drag.source.type === "desktop" ? this.findNode(drag.source.nodeId) : this.findFolderChild(drag.source.folderId, drag.source.childId);
     if (!source || source.type === "folder") {
@@ -1300,7 +1593,7 @@ export class DesktopApp {
       this.suppressStoreRender = false;
     }
 
-    drag.element.classList.remove("is-dragging");
+    this.clearDragVisualState(drag);
     if (drag.floating) {
       drag.element.remove();
     }
@@ -1346,7 +1639,7 @@ export class DesktopApp {
       cancelAnimationFrame(drag.frame);
     }
 
-    drag.element.classList.remove("is-dragging");
+    this.clearDragVisualState(drag);
     if (drag.floating) {
       drag.element.remove();
     }
@@ -1356,6 +1649,19 @@ export class DesktopApp {
     if (drag.started) {
       this.renderWithFlip();
     }
+  }
+
+  private clearDragVisualState(drag: ActiveDrag) {
+    if (this.isDesktopGroupDrag(drag)) {
+      drag.groupItems.forEach((item) => {
+        item.element.classList.remove("is-dragging");
+        item.element.style.transform = "";
+      });
+      return;
+    }
+
+    drag.element.classList.remove("is-dragging");
+    drag.element.style.transform = "";
   }
 
   private clearTargetStyles() {
@@ -1949,6 +2255,14 @@ export class DesktopApp {
     if (this.selectedId && !this.findNode(this.selectedId)) {
       this.selectedId = null;
     }
+    for (const id of Array.from(this.selectedIds)) {
+      if (!this.findNode(id)) {
+        this.selectedIds.delete(id);
+      }
+    }
+    if (!this.selectedId && this.selectedIds.size > 0) {
+      this.selectedId = Array.from(this.selectedIds).at(-1) ?? null;
+    }
 
     if (this.renamingId && !this.findNode(this.renamingId)) {
       this.renamingId = null;
@@ -2175,6 +2489,7 @@ export class DesktopApp {
   private isHardRefreshInteractionBusy() {
     return Boolean(
       this.drag ||
+        this.marquee ||
         this.renamingId ||
         this.renamingFolderChild ||
         this.editingFolder ||
@@ -2310,7 +2625,7 @@ export class DesktopApp {
       return;
     }
 
-    this.selectedId = node.id;
+    this.selectSingleDesktopNode(node.id);
     this.renamingId = null;
     this.render();
   }
@@ -2328,7 +2643,7 @@ export class DesktopApp {
     this.lastActivation = { id: activationId, time: now };
 
     if (!isDoubleClick) {
-      this.selectedId = null;
+      this.clearDesktopSelection();
       this.selectedFolderChild = { folderId, childId };
       this.renamingFolderChild = null;
       this.renderFolderLayer();
@@ -2431,8 +2746,9 @@ export class DesktopApp {
           this.closeFolderNow();
         }
         if (this.selectedId === node.id) {
-          this.selectedId = null;
+          this.selectedId = Array.from(this.selectedIds).find((id) => id !== node.id) ?? null;
         }
+        this.selectedIds.delete(node.id);
         if (this.renamingId === node.id) {
           this.renamingId = null;
         }
@@ -2517,8 +2833,7 @@ export class DesktopApp {
     }
 
     event.preventDefault();
-    this.selectedId = next.id;
-    this.selectedFolderChild = null;
+    this.selectSingleDesktopNode(next.id);
     this.renamingId = null;
     this.closeContextMenu();
     this.render();
@@ -2624,7 +2939,7 @@ export class DesktopApp {
     }
 
     event.preventDefault();
-    this.selectedId = null;
+    this.clearDesktopSelection();
     this.renamingFolderChild = null;
     this.selectedFolderChild = { folderId: folder.id, childId: next.id };
     this.closeContextMenu();
@@ -2655,8 +2970,7 @@ export class DesktopApp {
     const folderIndex = this.store.getNodes().findIndex((node) => node.id === folderId);
     const targetIndex = folderIndex >= 0 ? folderIndex + 1 : this.store.getNodes().length;
 
-    this.selectedId = childId;
-    this.selectedFolderChild = null;
+    this.selectSingleDesktopNode(childId);
     this.renamingFolderChild = null;
     const changed = this.store.moveFolderChildToDesktop(folderId, childId, targetIndex);
     if (!changed) {
@@ -2755,7 +3069,7 @@ export class DesktopApp {
   private startRename(nodeId: string) {
     this.renamingId = nodeId;
     this.renamingFolderChild = null;
-    this.selectedId = nodeId;
+    this.selectSingleDesktopNode(nodeId);
     this.render();
     requestAnimationFrame(() => {
       const input = this.grid.querySelector<HTMLInputElement>(`[data-rename-id="${CSS.escape(nodeId)}"]`);
@@ -2766,6 +3080,7 @@ export class DesktopApp {
 
   private startFolderChildRename(folderId: string, childId: string) {
     this.renamingId = null;
+    this.clearDesktopSelection();
     this.renamingFolderChild = { folderId, childId };
     this.selectedFolderChild = { folderId, childId };
     this.renderFolderLayer();
@@ -2832,7 +3147,7 @@ export class DesktopApp {
         const renamed = await renameDesktopItem(node, name);
         if (renamed) {
           this.store.replaceItem(node.id, renamed);
-          this.selectedId = renamed.id;
+          this.selectSingleDesktopNode(renamed.id);
           this.render();
         } else {
           await this.refreshDesktopItems();
@@ -2967,6 +3282,26 @@ function isDesktopSettingKey(key: string): key is keyof DesktopSettings {
 
 function clampScroll(value: number, min: number, max: number) {
   return Math.min(Math.max(min, max), Math.max(min, value));
+}
+
+function normalizedRect(startX: number, startY: number, currentX: number, currentY: number): Rect {
+  const left = Math.min(startX, currentX);
+  const top = Math.min(startY, currentY);
+  const right = Math.max(startX, currentX);
+  const bottom = Math.max(startY, currentY);
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top
+  };
+}
+
+function rectsIntersect(a: Rect, b: Pick<DOMRect, "left" | "top" | "right" | "bottom">) {
+  return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 }
 
 function nextGridIndex(key: string, currentIndex: number, itemCount: number, columns: number) {

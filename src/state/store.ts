@@ -208,6 +208,33 @@ export class DesktopStore {
     return true;
   }
 
+  moveDesktopNodes(nodeIds: string[], targetIndex: number) {
+    const movingIds = new Set(nodeIds);
+    const moving = this.nodes.filter((node) => movingIds.has(node.id));
+    if (moving.length === 0) {
+      return false;
+    }
+
+    const removedBeforeTarget = this.nodes
+      .slice(0, clampIndex(targetIndex, this.nodes.length))
+      .filter((node) => movingIds.has(node.id)).length;
+    const remaining = this.nodes.filter((node) => !movingIds.has(node.id));
+    const insertionIndex = clampIndex(targetIndex - removedBeforeTarget, remaining.length);
+    const next = [
+      ...remaining.slice(0, insertionIndex),
+      ...moving,
+      ...remaining.slice(insertionIndex)
+    ];
+
+    if (next.map((node) => node.id).join("\n") === this.nodes.map((node) => node.id).join("\n")) {
+      return false;
+    }
+
+    this.nodes = next;
+    this.persistAndEmit();
+    return true;
+  }
+
   createFolder(sourceId: string, targetId: string): FolderCreationResult {
     const sourceIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === sourceId);
     const targetIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === targetId);

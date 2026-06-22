@@ -517,6 +517,7 @@ mod platform {
 
     static COPIED_DESKTOP_ITEM: Mutex<Option<PathBuf>> = Mutex::new(None);
     static ICON_DATA_URL_CACHE: OnceLock<Mutex<HashMap<i32, String>>> = OnceLock::new();
+    static LAYER_WINDOW_PROCS: OnceLock<Mutex<HashMap<isize, isize>>> = OnceLock::new();
     thread_local! {
         static MENU_MESSAGE_CONTEXT: RefCell<Option<MenuMessageContext>> = const { RefCell::new(None) };
     }
@@ -577,10 +578,11 @@ mod platform {
         FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos, GetIconInfo,
         GetSystemMetrics, GetWindowLongW, PrivateExtractIconsW, SendMessageTimeoutW,
         SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowLongW, SetWindowPos,
-        ShowWindow, TrackPopupMenuEx, GWLP_WNDPROC, GWL_STYLE, HICON, ICONINFO, SMTO_NORMAL,
-        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW,
-        SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
-        WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WNDPROC, WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP,
+        ShowWindow, TrackPopupMenuEx, GWLP_WNDPROC, GWL_STYLE, HICON, HTCLIENT, ICONINFO,
+        SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+        SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD,
+        TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST,
+        WNDPROC, WS_CAPTION, WS_CHILD, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
         WS_THICKFRAME, WS_VISIBLE,
     };
 
@@ -1321,6 +1323,55 @@ mod platform {
         unsafe { CallWindowProcW(previous_proc, hwnd, message, wparam, lparam) }
     }
 
+    unsafe fn install_desktop_layer_hit_test_guard(hwnd: HWND) {
+        let key = hwnd.0 as isize;
+        let procs = LAYER_WINDOW_PROCS.get_or_init(|| Mutex::new(HashMap::new()));
+        if procs
+            .lock()
+            .map(|guard| guard.contains_key(&key))
+            .unwrap_or(false)
+        {
+            return;
+        }
+
+        let previous_proc = SetWindowLongPtrW(
+            hwnd,
+            GWLP_WNDPROC,
+            desktop_layer_window_proc as *const () as usize as isize,
+        );
+        if previous_proc == 0 {
+            return;
+        }
+
+        if let Ok(mut guard) = procs.lock() {
+            guard.insert(key, previous_proc);
+        }
+    }
+
+    unsafe extern "system" fn desktop_layer_window_proc(
+        hwnd: HWND,
+        message: u32,
+        wparam: WPARAM,
+        lparam: LPARAM,
+    ) -> LRESULT {
+        if message == WM_NCHITTEST {
+            return LRESULT(HTCLIENT as isize);
+        }
+
+        let key = hwnd.0 as isize;
+        let previous_proc = LAYER_WINDOW_PROCS
+            .get()
+            .and_then(|procs| procs.lock().ok().and_then(|guard| guard.get(&key).copied()))
+            .unwrap_or(0);
+
+        if previous_proc == 0 {
+            return unsafe { DefWindowProcW(hwnd, message, wparam, lparam) };
+        }
+
+        let previous_proc: WNDPROC = unsafe { std::mem::transmute(previous_proc) };
+        unsafe { CallWindowProcW(previous_proc, hwnd, message, wparam, lparam) }
+    }
+
     unsafe fn context_menu_command_verb(
         context_menu: &IContextMenu,
         command_id: usize,
@@ -1361,17 +1412,32 @@ mod platform {
         unsafe {
             let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
             let visible_style = if show { WS_VISIBLE.0 } else { 0 };
-            let desktop_style = (style & !WS_POPUP.0 & !WS_THICKFRAME.0 & !WS_MAXIMIZEBOX.0)
+            let desktop_style = (style
+                & !WS_POPUP.0
+                & !WS_CAPTION.0
+                & !WS_SYSMENU.0
+                & !WS_THICKFRAME.0
+                & !WS_MINIMIZEBOX.0
+                & !WS_MAXIMIZEBOX.0)
                 | WS_CHILD.0
                 | visible_style;
             let _ = SetWindowLongW(hwnd, GWL_STYLE, desktop_style as i32);
+            install_desktop_layer_hit_test_guard(hwnd);
 
             SetParent(hwnd, Some(parent)).map_err(|error| format!("SetParent failed: {error}"))?;
 
             let (width, height) = desktop_host_client_size(parent);
             let show_flag = if show { SWP_SHOWWINDOW } else { SWP_NOACTIVATE };
-            SetWindowPos(hwnd, None, 0, 0, width, height, SWP_NOACTIVATE | show_flag)
-                .map_err(|error| format!("SetWindowPos failed: {error}"))?;
+            SetWindowPos(
+                hwnd,
+                None,
+                0,
+                0,
+                width,
+                height,
+                SWP_NOACTIVATE | SWP_FRAMECHANGED | show_flag,
+            )
+            .map_err(|error| format!("SetWindowPos failed: {error}"))?;
         }
 
         Ok(())
