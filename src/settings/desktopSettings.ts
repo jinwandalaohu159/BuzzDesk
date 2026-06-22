@@ -10,6 +10,7 @@ import type {
 export const defaultDesktopSettings: DesktopSettings = {
   layoutMode: "auto",
   appPriority: "aboveNormal",
+  settingsDarkMode: false,
   appIconSize: 60,
   desktopGapPx: 12,
   desktopPaddingX: 28,
@@ -55,6 +56,7 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
   return {
     layoutMode: normalizeLayoutMode(settings?.layoutMode),
     appPriority: normalizeAppPriority(settings?.appPriority),
+    settingsDarkMode: settings?.settingsDarkMode === true,
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),
     desktopGapPx: clampNumber(settings?.desktopGapPx, 0, 32, defaultDesktopSettings.desktopGapPx),
     desktopPaddingX: clampNumber(settings?.desktopPaddingX, 0, 160, defaultDesktopSettings.desktopPaddingX),

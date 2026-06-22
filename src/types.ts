@@ -59,6 +59,7 @@ export type DesktopContextMenuAction =
 export interface DesktopSettings {
   layoutMode: DesktopLayoutMode;
   appPriority: AppProcessPriority;
+  settingsDarkMode: boolean;
   appIconSize: number;
   desktopGapPx: number;
   desktopPaddingX: number;

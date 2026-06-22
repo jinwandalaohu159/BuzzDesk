@@ -544,13 +544,17 @@ export class DesktopApp {
 
     if (!this.settingsOpen) {
       this.settingsPriorityMenuOpen = false;
+      this.settingsLayer.classList.remove("is-settings-dark");
       this.settingsLayer.replaceChildren();
       return;
     }
 
+    const settings = this.store.getSettings();
+    this.settingsLayer.classList.toggle("is-settings-dark", settings.settingsDarkMode);
+
     this.settingsLayer.replaceChildren(
       ...renderSettingsLayer({
-        settings: this.store.getSettings(),
+        settings,
         view: this.settingsView
       })
     );
@@ -570,7 +574,7 @@ export class DesktopApp {
 
     const rect = trigger.getBoundingClientRect();
     const popover = renderSettingsPriorityPopover(this.store.getSettings().appPriority);
-    const width = rect.width;
+    const width = Math.max(168, rect.width);
     const gap = 8;
     const edge = 10;
     const estimatedHeight = 126;
@@ -2200,6 +2204,7 @@ export class DesktopApp {
     const viewButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-settings-view]");
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
     const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
+    const darkModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-dark-mode]");
     const priorityTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-priority-trigger]");
     const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
     const priorityPopover = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-priority-popover]");
@@ -2231,6 +2236,13 @@ export class DesktopApp {
       return;
     }
 
+    if (darkModeButton) {
+      this.cancelSettingsPreview();
+      this.settingsPriorityMenuOpen = false;
+      this.store.updateSettings({ settingsDarkMode: this.store.getSettings().settingsDarkMode !== true });
+      return;
+    }
+
     if (priorityTrigger) {
       this.settingsPriorityMenuOpen = !this.settingsPriorityMenuOpen;
       this.renderSettingsPriorityMenu();
@@ -2244,7 +2256,6 @@ export class DesktopApp {
         this.settingsPriorityMenuOpen = false;
         this.store.updateSettings({ appPriority });
         void setAppProcessPriority(appPriority);
-        this.renderSettingsLayer();
       }
       return;
     }
@@ -3883,7 +3894,7 @@ function isNavigationKey(key: string) {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
 }
 
-type NumericDesktopSettingKey = Exclude<keyof DesktopSettings, "layoutMode" | "appPriority">;
+type NumericDesktopSettingKey = Exclude<keyof DesktopSettings, "layoutMode" | "appPriority" | "settingsDarkMode">;
 
 function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {
   return (

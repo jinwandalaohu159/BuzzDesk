@@ -356,6 +356,7 @@ function renderSettingsControls(settings: DesktopSettings, view: "main" | "layou
         : "\u81ea\u52a8\u6392\u5217\u3001\u56fe\u6807\u3001\u95f4\u8ddd\u548c\u8fb9\u8ddd",
       "layout"
     ),
+    renderSettingsDarkModeControl(settings.settingsDarkMode),
     renderAppPriorityControl(settings.appPriority)
   ];
 }
@@ -449,6 +450,32 @@ function renderLayoutModeControl(layoutMode: DesktopSettings["layoutMode"]) {
   });
 
   row.append(meta, control);
+  return row;
+}
+
+function renderSettingsDarkModeControl(enabled: boolean) {
+  const row = document.createElement("section");
+  row.className = "settings-row settings-toggle-row";
+
+  const meta = document.createElement("span");
+  meta.className = "settings-row-meta";
+
+  const name = document.createElement("span");
+  name.textContent = "\u6df1\u8272\u6a21\u5f0f";
+
+  const output = document.createElement("output");
+  output.textContent = enabled ? "\u5f00" : "\u5173";
+
+  meta.append(name, output);
+
+  const toggle = document.createElement("button");
+  toggle.type = "button";
+  toggle.className = "settings-toggle";
+  toggle.dataset.settingDarkMode = "true";
+  toggle.setAttribute("aria-pressed", String(enabled));
+  toggle.append(document.createElement("span"));
+
+  row.append(meta, toggle);
   return row;
 }
 
