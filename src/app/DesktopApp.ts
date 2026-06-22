@@ -1,7 +1,7 @@
 import { captureRects, playFlip } from "../animation/flip";
 import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../animation/drag";
 import { playFolderClose } from "../animation/folderPanel";
-import { playFolderBirth, playMergeIntoTarget } from "../animation/merge";
+import { playFolderBirth, playMergeGroupIntoTarget, playMergeIntoTarget } from "../animation/merge";
 import { desktopFallbackMenuItems, itemFallbackMenuItems, folderContextMenuItems } from "./contextMenuModel";
 import { computeDesktopLayout, desktopIndexForPoint, panelSizeFor } from "../layout/grid";
 import {
@@ -17,6 +17,7 @@ import {
 import {
   applyDesktopSettings,
   defaultDesktopSettings,
+  desktopTileMetrics,
   fitDesktopSettings,
   folderRatioMax,
   folderRatioMin,
@@ -49,6 +50,7 @@ import type {
   AppNode,
   DesktopContextMenuAction,
   DesktopNode,
+  DesktopPosition,
   DesktopSettings,
   FolderAppearanceSettings,
   FolderNode,
@@ -354,7 +356,7 @@ export class DesktopApp {
     this.pruneDetachedUiState();
     const nodes = this.store.getNodes();
     const viewport = desktopViewport();
-    const settings = fitDesktopSettings(this.store.getSettings(), nodes, viewport.width, viewport.height);
+    const settings = this.effectiveDesktopSettings(this.store.getSettings(), nodes, viewport);
     applyDesktopSettings(settings);
     this.layout = computeDesktopLayout(
       nodes,
@@ -1281,7 +1283,10 @@ export class DesktopApp {
     let focusAfterRender: string | null = null;
     this.suppressStoreRender = true;
     try {
-      if (this.isDesktopGroupDrag(drag)) {
+      if (this.store.getSettings().layoutMode === "free" && drag.source.type === "desktop") {
+        changed = this.commitFreeDesktopDrag(drag);
+        focusAfterRender = drag.source.nodeId;
+      } else if (this.isDesktopGroupDrag(drag)) {
         const groupIds = drag.groupItems.map((item) => item.id);
         this.setDesktopSelection(groupIds, drag.source.type === "desktop" ? drag.source.nodeId : groupIds[0]);
         focusAfterRender = this.selectedId;
@@ -1290,11 +1295,28 @@ export class DesktopApp {
         this.selectSingleDesktopNode(drag.source.childId);
         this.renamingFolderChild = null;
         focusAfterRender = drag.source.childId;
-        changed = this.store.moveFolderChildToDesktop(
-          drag.source.folderId,
-          drag.source.childId,
-          this.desktopInsertionIndex(drag.currentX, drag.currentY)
-        );
+        if (this.store.getSettings().layoutMode === "free") {
+          const viewport = desktopViewport();
+          const position = this.clampedDesktopPosition(
+            drag.currentX - viewport.offsetX - drag.width / 2,
+            drag.currentY - viewport.offsetY - drag.height / 2,
+            drag.width,
+            drag.height,
+            viewport
+          );
+          changed = this.store.moveFolderChildToDesktop(
+            drag.source.folderId,
+            drag.source.childId,
+            this.store.getNodes().length,
+            position
+          );
+        } else {
+          changed = this.store.moveFolderChildToDesktop(
+            drag.source.folderId,
+            drag.source.childId,
+            this.desktopInsertionIndex(drag.currentX, drag.currentY)
+          );
+        }
       } else if (drag.started && drag.source.type === "desktop") {
         this.selectSingleDesktopNode(drag.source.nodeId);
         changed = this.store.moveDesktopNode(
@@ -1359,6 +1381,7 @@ export class DesktopApp {
 
       if (this.isDesktopGroupDrag(active)) {
         this.updateDesktopGroupDragFrame(active);
+        this.updateMergeTarget(active.currentX, active.currentY);
         if (didAutoScroll && this.drag === active) {
           this.scheduleDragFrame();
         }
@@ -1396,10 +1419,18 @@ export class DesktopApp {
   }
 
   private updateDesktopGroupDragFrame(drag: ActiveDrag) {
-    const dx = drag.currentX - drag.startX;
-    const dy = drag.currentY - drag.startY;
+    let dx = drag.currentX - drag.startX;
+    let dy = drag.currentY - drag.startY;
     const offsetX = this.root.scrollLeft - drag.startScrollLeft;
     const offsetY = this.root.scrollTop - drag.startScrollTop;
+    const viewport = desktopViewport();
+    const minX = Math.min(...drag.groupItems.map((item) => item.baseX - viewport.offsetX));
+    const minY = Math.min(...drag.groupItems.map((item) => item.baseY - viewport.offsetY));
+    const maxX = Math.max(...drag.groupItems.map((item) => item.baseX - viewport.offsetX + item.width));
+    const maxY = Math.max(...drag.groupItems.map((item) => item.baseY - viewport.offsetY + item.height));
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    dx = clampScroll(dx + offsetX, metrics.paddingX - minX, viewport.width - metrics.paddingX - maxX) - offsetX;
+    dy = clampScroll(dy + offsetY, metrics.paddingY - minY, viewport.height - metrics.paddingY - maxY) - offsetY;
 
     drag.groupItems.forEach((item) => {
       item.element.style.transform = toTransformStyle({
@@ -1432,6 +1463,278 @@ export class DesktopApp {
 
   private isDesktopGroupDrag(drag: ActiveDrag) {
     return drag.source.type === "desktop" && drag.groupItems.length > 1;
+  }
+
+  private commitFreeDesktopDrag(drag: ActiveDrag) {
+    let dx = drag.currentX - drag.startX + this.root.scrollLeft - drag.startScrollLeft;
+    let dy = drag.currentY - drag.startY + this.root.scrollTop - drag.startScrollTop;
+    const viewport = desktopViewport();
+    const movedItems =
+      this.isDesktopGroupDrag(drag)
+        ? drag.groupItems
+        : [{
+            id: drag.source.type === "desktop" ? drag.source.nodeId : "",
+            baseX: drag.baseX,
+            baseY: drag.baseY,
+            width: drag.width,
+            height: drag.height
+          }];
+
+    if (movedItems.length > 1) {
+      const minX = Math.min(...movedItems.map((item) => item.baseX - viewport.offsetX));
+      const minY = Math.min(...movedItems.map((item) => item.baseY - viewport.offsetY));
+      const maxX = Math.max(...movedItems.map((item) => item.baseX - viewport.offsetX + item.width));
+      const maxY = Math.max(...movedItems.map((item) => item.baseY - viewport.offsetY + item.height));
+      const metrics = desktopTileMetrics(this.store.getSettings());
+      dx = clampScroll(dx, metrics.paddingX - minX, viewport.width - metrics.paddingX - maxX);
+      dy = clampScroll(dy, metrics.paddingY - minY, viewport.height - metrics.paddingY - maxY);
+    }
+
+    const positions = movedItems.length > 1
+      ? this.resolveFreeGroupPositions(movedItems, dx, dy)
+      : movedItems
+          .filter((item) => item.id)
+          .map((item) => ({
+            id: item.id,
+            position: this.findOpenDesktopPosition(
+              {
+                x: item.baseX + dx - viewport.offsetX,
+                y: item.baseY + dy - viewport.offsetY
+              },
+              item.width,
+              item.height,
+              new Set([item.id])
+            )
+          }));
+
+    if (positions.length === 0) {
+      return false;
+    }
+
+    return this.store.updateNodePositions(positions);
+  }
+
+  private clampedDesktopPosition(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    viewport = desktopViewport()
+  ): DesktopPosition {
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    const maxAvailableX = Math.max(0, viewport.width - width);
+    const maxAvailableY = Math.max(0, viewport.height - height);
+    const minX = Math.min(metrics.paddingX, maxAvailableX);
+    const minY = Math.min(metrics.paddingY, maxAvailableY);
+    const maxX = Math.max(minX, maxAvailableX - metrics.paddingX);
+    const maxY = Math.max(minY, maxAvailableY - metrics.paddingY);
+
+    return {
+      x: Math.round(clampScroll(x, minX, maxX)),
+      y: Math.round(clampScroll(y, minY, maxY))
+    };
+  }
+
+  private resolveFreeGroupPositions(
+    movedItems: Array<Pick<DragGroupItem, "id" | "baseX" | "baseY" | "width" | "height">>,
+    dx: number,
+    dy: number
+  ) {
+    const viewport = desktopViewport();
+    const movingIds = new Set(movedItems.map((item) => item.id));
+    const occupied = this.desktopOccupiedRects(movingIds);
+    const groupLeft = Math.min(...movedItems.map((item) => item.baseX - viewport.offsetX));
+    const groupTop = Math.min(...movedItems.map((item) => item.baseY - viewport.offsetY));
+    const groupRight = Math.max(...movedItems.map((item) => item.baseX - viewport.offsetX + item.width));
+    const groupBottom = Math.max(...movedItems.map((item) => item.baseY - viewport.offsetY + item.height));
+    const groupWidth = groupRight - groupLeft;
+    const groupHeight = groupBottom - groupTop;
+    const preferred = this.snapDesktopPosition(groupLeft + dx, groupTop + dy, groupWidth, groupHeight, viewport);
+    const candidates = this.nearbySnapCandidates(preferred, groupWidth, groupHeight, viewport);
+
+    for (const candidate of candidates) {
+      const rects = movedItems.map((item) => ({
+        id: item.id,
+        x: candidate.x + (item.baseX - viewport.offsetX - groupLeft),
+        y: candidate.y + (item.baseY - viewport.offsetY - groupTop),
+        width: item.width,
+        height: item.height
+      }));
+
+      if (!rects.some((rect) => occupied.some((occupiedRect) => rectsOverlapWithMargin(rect, occupiedRect, 8)))) {
+        return rects.map((rect) => ({
+          id: rect.id,
+          position: { x: Math.round(rect.x), y: Math.round(rect.y) }
+        }));
+      }
+    }
+
+    return movedItems.map((item) => ({
+      id: item.id,
+      position: this.clampedDesktopPosition(
+        item.baseX + dx - viewport.offsetX,
+        item.baseY + dy - viewport.offsetY,
+        item.width,
+        item.height,
+        viewport
+      )
+    }));
+  }
+
+  private snapDesktopPosition(
+    x: number,
+    y: number,
+    width: number,
+    height: number,
+    viewport = desktopViewport()
+  ): DesktopPosition {
+    const step = this.desktopSnapStep();
+    return this.clampedDesktopPosition(
+      Math.round(x / step) * step,
+      Math.round(y / step) * step,
+      width,
+      height,
+      viewport
+    );
+  }
+
+  private nearbySnapCandidates(
+    preferred: DesktopPosition,
+    width: number,
+    height: number,
+    viewport = desktopViewport()
+  ) {
+    const step = this.desktopSnapStep();
+    const candidates: DesktopPosition[] = [preferred];
+    const seen = new Set([`${preferred.x}:${preferred.y}`]);
+
+    for (let radius = 1; radius <= 48; radius += 1) {
+      for (let row = -radius; row <= radius; row += 1) {
+        for (let column = -radius; column <= radius; column += 1) {
+          if (Math.abs(row) !== radius && Math.abs(column) !== radius) {
+            continue;
+          }
+
+          const candidate = this.clampedDesktopPosition(
+            preferred.x + column * step,
+            preferred.y + row * step,
+            width,
+            height,
+            viewport
+          );
+          const key = `${candidate.x}:${candidate.y}`;
+          if (!seen.has(key)) {
+            seen.add(key);
+            candidates.push(candidate);
+          }
+        }
+      }
+    }
+
+    return candidates.sort(
+      (a, b) =>
+        Math.hypot(a.x - preferred.x, a.y - preferred.y) -
+        Math.hypot(b.x - preferred.x, b.y - preferred.y)
+    );
+  }
+
+  private desktopSnapStep() {
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    return Math.max(6, Math.round(Math.min(metrics.width, metrics.height) / 10));
+  }
+
+  private freeFolderChildPositions(folder: FolderNode) {
+    if (this.store.getSettings().layoutMode !== "free") {
+      return undefined;
+    }
+
+    const slot = this.layout.get(folder.id);
+    if (!slot) {
+      return undefined;
+    }
+
+    const viewport = desktopViewport();
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    const excludeIds = new Set([folder.id, ...folder.children.map((child) => child.id)]);
+    const assigned: Array<{ x: number; y: number; width: number; height: number }> = [];
+    const startX = slot.x - viewport.offsetX;
+    const startY = slot.y - viewport.offsetY;
+
+    return folder.children.map((child, index) => {
+      const column = index % 3;
+      const row = Math.floor(index / 3);
+      const position = this.findOpenDesktopPosition(
+        {
+          x: startX + column * (metrics.width + metrics.gapX),
+          y: startY + row * (metrics.height + metrics.gapY)
+        },
+        metrics.width,
+        metrics.height,
+        excludeIds,
+        assigned
+      );
+      assigned.push({ ...position, width: metrics.width, height: metrics.height });
+      return { id: child.id, position };
+    });
+  }
+
+  private freeFolderChildPosition(folder: FolderNode, childId: string) {
+    if (this.store.getSettings().layoutMode !== "free") {
+      return null;
+    }
+
+    const slot = this.layout.get(folder.id);
+    if (!slot) {
+      return null;
+    }
+
+    const viewport = desktopViewport();
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    return this.findOpenDesktopPosition(
+      {
+        x: slot.x - viewport.offsetX + slot.width + metrics.gapX,
+        y: slot.y - viewport.offsetY
+      },
+      metrics.width,
+      metrics.height,
+      new Set([childId])
+    );
+  }
+
+  private findOpenDesktopPosition(
+    preferred: { x: number; y: number },
+    width: number,
+    height: number,
+    excludeIds: ReadonlySet<string>,
+    extraOccupied: Array<{ x: number; y: number; width: number; height: number }> = []
+  ): DesktopPosition {
+    const viewport = desktopViewport();
+    const occupied = [...this.desktopOccupiedRects(excludeIds), ...extraOccupied];
+    const snapped = this.snapDesktopPosition(preferred.x, preferred.y, width, height, viewport);
+    const candidates = this.nearbySnapCandidates(snapped, width, height, viewport);
+
+    for (const candidate of candidates) {
+      const rect = { ...candidate, width, height };
+      if (!occupied.some((occupiedRect) => rectsOverlapWithMargin(rect, occupiedRect, 8))) {
+        return candidate;
+      }
+    }
+
+    return snapped;
+  }
+
+  private desktopOccupiedRects(excludeIds: ReadonlySet<string>) {
+    const viewport = desktopViewport();
+    return this.store.getNodes()
+      .filter((node) => !excludeIds.has(node.id))
+      .map((node) => this.layout.get(node.id))
+      .filter((slot): slot is LayoutSlot => Boolean(slot))
+      .map((slot) => ({
+        x: slot.x - viewport.offsetX,
+        y: slot.y - viewport.offsetY,
+        width: slot.width,
+        height: slot.height
+      }));
   }
 
   private promoteFolderDrag(drag: ActiveDrag) {
@@ -1484,16 +1787,16 @@ export class DesktopApp {
   }
 
   private captureMergeTargets(drag: ActiveDrag): DragTargetSnapshot[] {
-    if (this.isDesktopGroupDrag(drag)) {
-      return [];
-    }
-
+    const sourceIds = this.desktopDragSourceIds(drag);
     const source =
-      drag.source.type === "desktop" ? this.findNode(drag.source.nodeId) : this.findFolderChild(drag.source.folderId, drag.source.childId);
-    if (!source || source.type === "folder") {
+      drag.source.type === "desktop"
+        ? sourceIds.map((id) => this.findNode(id))
+        : [this.findFolderChild(drag.source.folderId, drag.source.childId)];
+    if (source.some((node) => !node || node.type === "folder")) {
       return [];
     }
 
+    const excludedIds = new Set(sourceIds);
     const snapshots: DragTargetSnapshot[] = [];
     this.grid.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
       const id = element.dataset.nodeId;
@@ -1501,7 +1804,7 @@ export class DesktopApp {
         return;
       }
 
-      if (drag.source.type === "desktop" && id === drag.source.nodeId) {
+      if (excludedIds.has(id)) {
         return;
       }
 
@@ -1521,6 +1824,16 @@ export class DesktopApp {
     });
 
     return snapshots;
+  }
+
+  private desktopDragSourceIds(drag: ActiveDrag) {
+    if (drag.source.type !== "desktop") {
+      return [];
+    }
+
+    return this.isDesktopGroupDrag(drag)
+      ? drag.groupItems.map((item) => item.id)
+      : [drag.source.nodeId];
   }
 
   private hitTestMergeTarget(x: number, y: number, snapshots: DragTargetSnapshot[]) {
@@ -1598,8 +1911,14 @@ export class DesktopApp {
 
     const before = captureRects(this.grid);
     const targetRect = drag.targetRect ?? targetElement?.getBoundingClientRect() ?? null;
+    const mergeSources = this.isDesktopGroupDrag(drag)
+      ? drag.groupItems.map((item) => item.element)
+      : [drag.element];
     const mergeAnimation = targetElement
-      ? playMergeIntoTarget(drag.element, targetElement, { restoreOriginals: false }).catch((error) => {
+      ? (mergeSources.length > 1
+          ? playMergeGroupIntoTarget(mergeSources, targetElement, { restoreOriginals: false })
+          : playMergeIntoTarget(drag.element, targetElement, { restoreOriginals: false })
+        ).catch((error) => {
           console.warn("Unable to play merge animation", error);
         })
       : Promise.resolve();
@@ -1612,10 +1931,11 @@ export class DesktopApp {
     this.suppressStoreRender = true;
     try {
       if (drag.source.type === "desktop") {
+        const sourceIds = this.desktopDragSourceIds(drag);
         if (target?.type === "folder") {
-          changed = this.store.addDesktopItemToFolder(drag.source.nodeId, target.id);
+          changed = this.store.addDesktopItemsToFolder(sourceIds, target.id);
         } else if (target?.type === "item") {
-          const result = this.store.createFolder(drag.source.nodeId, target.id);
+          const result = this.store.createFolderFromItems(sourceIds, target.id);
           changed = result.changed;
           newFolderId = result.folderId;
         }
@@ -1764,10 +2084,17 @@ export class DesktopApp {
     const close = (event.target as HTMLElement).closest("[data-settings-close]");
     const reset = (event.target as HTMLElement).closest("[data-settings-reset]");
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
+    const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
 
     if (reset) {
       this.cancelSettingsPreview();
       this.store.updateSettings(defaultDesktopSettings);
+      return;
+    }
+
+    if (layoutModeButton?.dataset.settingLayoutMode === "auto" || layoutModeButton?.dataset.settingLayoutMode === "free") {
+      this.cancelSettingsPreview();
+      this.switchDesktopLayoutMode(layoutModeButton.dataset.settingLayoutMode);
       return;
     }
 
@@ -1777,8 +2104,8 @@ export class DesktopApp {
       const min = Number(stepButton.dataset.settingMin);
       const max = Number(stepButton.dataset.settingMax);
       const current = this.getSettingsValueSource();
-      if (key && Number.isFinite(step) && Number.isFinite(min) && Number.isFinite(max) && key in current) {
-        const value = Math.min(max, Math.max(min, current[key as keyof typeof current] + step));
+      if (key && isDesktopSettingKey(key) && Number.isFinite(step) && Number.isFinite(min) && Number.isFinite(max)) {
+        const value = Math.min(max, Math.max(min, current[key] + step));
         this.commitSettingValue(key, value);
       }
       return;
@@ -1882,7 +2209,7 @@ export class DesktopApp {
   private previewDesktopSettings(settings: DesktopSettings) {
     const nodes = this.store.getNodes();
     const viewport = desktopViewport();
-    const fitted = fitDesktopSettings(settings, nodes, viewport.width, viewport.height);
+    const fitted = this.effectiveDesktopSettings(settings, nodes, viewport);
     applyDesktopSettings(fitted);
     this.layout = computeDesktopLayout(
       nodes,
@@ -1913,8 +2240,63 @@ export class DesktopApp {
     this.renderFolderLayer(fitted);
   }
 
+  private switchDesktopLayoutMode(layoutMode: DesktopSettings["layoutMode"]) {
+    const previousSuppress = this.suppressStoreRender;
+    this.suppressStoreRender = true;
+
+    try {
+      if (layoutMode === "free") {
+        this.seedFreeLayoutPositions();
+      }
+      this.store.updateSettings({ layoutMode });
+    } finally {
+      this.suppressStoreRender = previousSuppress;
+    }
+
+    this.renderWithFlip();
+  }
+
+  private seedFreeLayoutPositions() {
+    const viewport = desktopViewport();
+    const positions = this.store.getNodes()
+      .map((node) => {
+        if (node.position) {
+          return null;
+        }
+
+        const slot = this.layout.get(node.id);
+        if (!slot) {
+          return null;
+        }
+
+        return {
+          id: node.id,
+          position: this.clampedDesktopPosition(
+            slot.x - viewport.offsetX,
+            slot.y - viewport.offsetY,
+            slot.width,
+            slot.height,
+            viewport
+          )
+        };
+      })
+      .filter((entry): entry is { id: string; position: DesktopPosition } => Boolean(entry));
+
+    this.store.updateNodePositions(positions);
+  }
+
   private getSettingsValueSource(): DesktopSettings {
     return this.store.getSettings();
+  }
+
+  private effectiveDesktopSettings(
+    settings: DesktopSettings,
+    nodes: DesktopNode[],
+    viewport = desktopViewport()
+  ): DesktopSettings {
+    return settings.layoutMode === "free"
+      ? settings
+      : fitDesktopSettings(settings, nodes, viewport.width, viewport.height);
   }
 
   private commitSettingValue(key: string, value: number, render = true) {
@@ -2786,7 +3168,8 @@ export class DesktopApp {
 
   private async deleteNode(node: DesktopNode) {
     if (node.type === "folder") {
-      const changed = this.store.dissolveFolder(node.id);
+      const childPositions = this.freeFolderChildPositions(node);
+      const changed = this.store.dissolveFolder(node.id, childPositions);
       if (changed) {
         if (this.openFolderId === node.id) {
           this.closeFolderNow();
@@ -3015,10 +3398,12 @@ export class DesktopApp {
   private moveFolderChildOut(folderId: string, childId: string) {
     const folderIndex = this.store.getNodes().findIndex((node) => node.id === folderId);
     const targetIndex = folderIndex >= 0 ? folderIndex + 1 : this.store.getNodes().length;
+    const folder = this.findFolder(folderId);
+    const position = folder ? this.freeFolderChildPosition(folder, childId) : null;
 
     this.selectSingleDesktopNode(childId);
     this.renamingFolderChild = null;
-    const changed = this.store.moveFolderChildToDesktop(folderId, childId, targetIndex);
+    const changed = this.store.moveFolderChildToDesktop(folderId, childId, targetIndex, position);
     if (!changed) {
       this.renderFolderLayer();
       return;
@@ -3078,11 +3463,10 @@ export class DesktopApp {
     slot: LayoutSlot
   ): Pick<DOMRect, "left" | "top" | "width" | "height"> {
     const viewport = desktopViewport();
-    const settings = fitDesktopSettings(
+    const settings = this.effectiveDesktopSettings(
       this.store.getSettings(),
       this.store.getNodes(),
-      viewport.width,
-      viewport.height
+      viewport
     );
     const metrics = folderTileMetrics(settings, node.appearance);
     const coverWidth = metrics.iconShellWidth;
@@ -3326,8 +3710,16 @@ function isNavigationKey(key: string) {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
 }
 
-function isDesktopSettingKey(key: string): key is keyof DesktopSettings {
-  return key === "appIconSize" || key === "folderCoverSmallPx" || key === "folderCoverMediumPx" || key === "folderCoverLargePx";
+function isDesktopSettingKey(key: string): key is Exclude<keyof DesktopSettings, "layoutMode"> {
+  return (
+    key === "appIconSize" ||
+    key === "desktopGapPx" ||
+    key === "desktopPaddingX" ||
+    key === "desktopPaddingY" ||
+    key === "folderCoverSmallPx" ||
+    key === "folderCoverMediumPx" ||
+    key === "folderCoverLargePx"
+  );
 }
 
 function clampScroll(value: number, min: number, max: number) {
@@ -3352,6 +3744,19 @@ function normalizedRect(startX: number, startY: number, currentX: number, curren
 
 function rectsIntersect(a: Rect, b: Pick<DOMRect, "left" | "top" | "right" | "bottom">) {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
+}
+
+function rectsOverlapWithMargin(
+  a: { x: number; y: number; width: number; height: number },
+  b: { x: number; y: number; width: number; height: number },
+  margin: number
+) {
+  return (
+    a.x < b.x + b.width + margin &&
+    a.x + a.width + margin > b.x &&
+    a.y < b.y + b.height + margin &&
+    a.y + a.height + margin > b.y
+  );
 }
 
 function nextGridIndex(key: string, currentIndex: number, itemCount: number, columns: number) {

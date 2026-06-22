@@ -1,6 +1,12 @@
 export type DesktopItemKind = "app" | "file" | "directory" | "system";
 
 export type FolderCoverSize = "small" | "medium" | "large";
+export type DesktopLayoutMode = "auto" | "free";
+
+export interface DesktopPosition {
+  x: number;
+  y: number;
+}
 
 export interface DesktopSourceItem {
   id: string;
@@ -50,7 +56,11 @@ export type DesktopContextMenuAction =
   | "folderIconLarge";
 
 export interface DesktopSettings {
+  layoutMode: DesktopLayoutMode;
   appIconSize: number;
+  desktopGapPx: number;
+  desktopPaddingX: number;
+  desktopPaddingY: number;
   folderCoverSmallPx: number;
   folderCoverMediumPx: number;
   folderCoverLargePx: number;
@@ -64,6 +74,7 @@ export interface FolderAppearanceSettings {
 
 export interface AppNode extends DesktopSourceItem {
   type: "item";
+  position?: DesktopPosition | null;
 }
 
 export interface FolderNode {
@@ -73,6 +84,7 @@ export interface FolderNode {
   children: AppNode[];
   appearance: FolderAppearanceSettings;
   createdAt: number;
+  position?: DesktopPosition | null;
 }
 
 export type DesktopNode = AppNode | FolderNode;
@@ -83,6 +95,7 @@ export interface PersistedItemNode {
   name?: string;
   path?: string | null;
   launchId?: string | null;
+  position?: DesktopPosition | null;
 }
 
 export interface PersistedFolderNode {
@@ -92,6 +105,7 @@ export interface PersistedFolderNode {
   children: PersistedItemNode[];
   appearance?: Partial<FolderAppearanceSettings>;
   createdAt: number;
+  position?: DesktopPosition | null;
 }
 
 export type PersistedNode = PersistedItemNode | PersistedFolderNode;

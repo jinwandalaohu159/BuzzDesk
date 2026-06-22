@@ -335,6 +335,11 @@ export function renderSettingsLayer(options: {
   controls.className = "settings-controls";
 
   controls.append(
+    renderLayoutModeControl(settings.layoutMode),
+    renderSettingControl("桌面图标", "appIconSize", settings.appIconSize, 48, 76, "px"),
+    renderSettingControl("图标间距", "desktopGapPx", settings.desktopGapPx, 0, 32, "px"),
+    renderSettingControl("左右边距", "desktopPaddingX", settings.desktopPaddingX, 0, 160, "px"),
+    renderSettingControl("上下边距", "desktopPaddingY", settings.desktopPaddingY, 0, 160, "px"),
     renderSettingControl("文件夹图标 小", "folderCoverSmallPx", settings.folderCoverSmallPx, 6, 40, "px"),
     renderSettingControl("文件夹图标 中", "folderCoverMediumPx", settings.folderCoverMediumPx, 6, 40, "px"),
     renderSettingControl("文件夹图标 大", "folderCoverLargePx", settings.folderCoverLargePx, 6, 40, "px")
@@ -342,6 +347,40 @@ export function renderSettingsLayer(options: {
 
   panel.append(controls);
   return [backdrop, panel];
+}
+
+function renderLayoutModeControl(layoutMode: DesktopSettings["layoutMode"]) {
+  const row = document.createElement("section");
+  row.className = "settings-row";
+
+  const meta = document.createElement("span");
+  meta.className = "settings-row-meta";
+
+  const name = document.createElement("span");
+  name.textContent = "排列方式";
+
+  const output = document.createElement("output");
+  output.textContent = layoutMode === "free" ? "自由布局" : "自动排列";
+
+  meta.append(name, output);
+
+  const control = document.createElement("div");
+  control.className = "settings-segmented";
+
+  [
+    { value: "auto", label: "自动排列" },
+    { value: "free", label: "自由布局" }
+  ].forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.settingLayoutMode = option.value;
+    button.classList.toggle("is-active", layoutMode === option.value);
+    button.textContent = option.label;
+    control.append(button);
+  });
+
+  row.append(meta, control);
+  return row;
 }
 
 function renderSettingControl(

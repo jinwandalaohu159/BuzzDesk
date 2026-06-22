@@ -18,11 +18,14 @@ export interface FlowLayoutResult {
   contentHeight: number;
 }
 
-interface PackedRect {
-  x: number;
-  y: number;
-  width: number;
-  height: number;
+interface FlowGrid {
+  left: number;
+  top: number;
+  columns: number;
+  columnPitch: number;
+  rowPitch: number;
+  effectiveGapX: number;
+  effectivePaddingX: number;
 }
 
 export function layoutDesktopFlow(
@@ -34,23 +37,22 @@ export function layoutDesktopFlow(
   viewportOffsetX = 0,
   viewportOffsetY = 0
 ): FlowLayoutResult {
-  const horizontalPadding = symmetricHorizontalPadding(viewportWidth, base);
-  const layoutBase = {
-    ...base,
-    paddingX: viewportOffsetX + horizontalPadding,
-    paddingY: viewportOffsetY + base.paddingY
-  };
+  const grid = createFlowGrid(viewportWidth, base, viewportOffsetX, viewportOffsetY);
   const slots = new Map<string, LayoutSlot>();
-  const usableRight = viewportOffsetX + Math.max(horizontalPadding + base.width, viewportWidth - horizontalPadding);
-  const placed: PackedRect[] = [];
-  let right = layoutBase.paddingX;
-  let bottom = layoutBase.paddingY;
+  const occupied: boolean[][] = [];
+  let right = grid.left;
+  let bottom = grid.top;
 
   nodes.forEach((node) => {
     const tile = tileForNode(node);
-    const position = firstAvailableRect(placed, tile, layoutBase, usableRight);
-    const x = position.x;
-    const y = position.y;
+    const columnSpan = tileSpan(tile.width, base.width, grid.effectiveGapX, grid.columns);
+    const rowSpan = tileSpan(tile.height, base.height, base.gapY);
+    const cell = firstAvailableCell(occupied, grid.columns, columnSpan, rowSpan);
+    occupyCells(occupied, cell.row, cell.column, columnSpan, rowSpan);
+
+    const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
+    const x = grid.left + cell.column * grid.columnPitch + Math.max(0, Math.round((reservedWidth - tile.width) / 2));
+    const y = grid.top + cell.row * grid.rowPitch;
 
     slots.set(node.id, {
       id: node.id,
@@ -62,79 +64,98 @@ export function layoutDesktopFlow(
 
     right = Math.max(right, x + tile.width);
     bottom = Math.max(bottom, y + tile.height);
-    placed.push({ x, y, width: tile.width, height: tile.height });
   });
 
   return {
     slots,
-    contentWidth: right + horizontalPadding + viewportOffsetX,
+    contentWidth: right + grid.effectivePaddingX + viewportOffsetX,
     contentHeight: bottom + base.paddingY + viewportOffsetY
   };
 }
 
-function firstAvailableRect(
-  placed: PackedRect[],
-  tile: FlowTileMetrics,
+function createFlowGrid(
+  viewportWidth: number,
   base: FlowBaseMetrics,
-  usableRight: number
+  viewportOffsetX: number,
+  viewportOffsetY: number
+): FlowGrid {
+  const maxPadding = Math.max(0, Math.floor((viewportWidth - base.width) / 2));
+  const effectivePaddingX = Math.min(Math.max(0, base.paddingX), maxPadding);
+  const contentWidth = Math.max(base.width, viewportWidth - effectivePaddingX * 2);
+  const desiredGapX = Math.max(0, base.gapX);
+  const columns = Math.max(1, Math.floor((contentWidth + desiredGapX) / (base.width + desiredGapX)));
+  const effectiveGapX =
+    columns > 1
+      ? Math.max(desiredGapX, (contentWidth - columns * base.width) / (columns - 1))
+      : desiredGapX;
+
+  return {
+    left: viewportOffsetX + effectivePaddingX,
+    top: viewportOffsetY + Math.max(0, base.paddingY),
+    columns,
+    columnPitch: base.width + effectiveGapX,
+    rowPitch: base.height + Math.max(0, base.gapY),
+    effectiveGapX,
+    effectivePaddingX
+  };
+}
+
+function tileSpan(size: number, baseSize: number, gap: number, maxSpan = Number.POSITIVE_INFINITY) {
+  const pitch = baseSize + Math.max(0, gap);
+  const span = pitch > 0 ? Math.ceil((size + Math.max(0, gap)) / pitch) : 1;
+  return Math.max(1, Math.min(maxSpan, span));
+}
+
+function spanSize(baseSize: number, gap: number, span: number) {
+  return span * baseSize + Math.max(0, span - 1) * Math.max(0, gap);
+}
+
+function firstAvailableCell(
+  occupied: boolean[][],
+  columns: number,
+  columnSpan: number,
+  rowSpan: number
 ) {
-  const xCandidates = uniqueSorted([
-    base.paddingX,
-    ...placed.map((rect) => rect.x + rect.width + base.gapX)
-  ]).filter((x) => x + tile.width <= usableRight || x === base.paddingX);
-  const yCandidates = uniqueSorted([
-    base.paddingY,
-    ...placed.map((rect) => rect.y),
-    ...placed.map((rect) => rect.y + rect.height + base.gapY)
-  ]);
-
-  for (const y of yCandidates) {
-    for (const x of xCandidates) {
-      const candidate = { x, y, width: tile.width, height: tile.height };
-      if (candidate.x + candidate.width > usableRight && candidate.x !== base.paddingX) {
-        continue;
-      }
-
-      if (!placed.some((rect) => rectsCollideWithGap(candidate, rect, base))) {
-        return candidate;
+  for (let row = 0; row < 10000; row += 1) {
+    for (let column = 0; column <= columns - columnSpan; column += 1) {
+      if (cellsAvailable(occupied, row, column, columnSpan, rowSpan)) {
+        return { row, column };
       }
     }
   }
 
-  const nextY =
-    placed.length === 0
-      ? base.paddingY
-      : Math.max(...placed.map((rect) => rect.y + rect.height + base.gapY));
-  return {
-    x: base.paddingX,
-    y: nextY,
-    width: tile.width,
-    height: tile.height
-  };
+  return { row: occupied.length, column: 0 };
 }
 
-function rectsCollideWithGap(a: PackedRect, b: PackedRect, base: FlowBaseMetrics) {
-  return (
-    a.x < b.x + b.width + base.gapX &&
-    a.x + a.width + base.gapX > b.x &&
-    a.y < b.y + b.height + base.gapY &&
-    a.y + a.height + base.gapY > b.y
-  );
-}
-
-function uniqueSorted(values: number[]) {
-  return Array.from(new Set(values.map((value) => Math.round(value)))).sort((a, b) => a - b);
-}
-
-function symmetricHorizontalPadding(viewportWidth: number, base: FlowBaseMetrics) {
-  const minPadding = Math.max(0, base.paddingX);
-  const stride = base.width + base.gapX;
-  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0 || base.width <= 0 || stride <= 0) {
-    return minPadding;
+function cellsAvailable(
+  occupied: boolean[][],
+  startRow: number,
+  startColumn: number,
+  columnSpan: number,
+  rowSpan: number
+) {
+  for (let row = startRow; row < startRow + rowSpan; row += 1) {
+    for (let column = startColumn; column < startColumn + columnSpan; column += 1) {
+      if (occupied[row]?.[column]) {
+        return false;
+      }
+    }
   }
 
-  const availableWidth = Math.max(base.width, viewportWidth - minPadding * 2);
-  const columns = Math.max(1, Math.floor((availableWidth + base.gapX) / stride));
-  const rowWidth = columns * base.width + Math.max(0, columns - 1) * base.gapX;
-  return Math.max(minPadding, Math.floor((viewportWidth - rowWidth) / 2));
+  return true;
+}
+
+function occupyCells(
+  occupied: boolean[][],
+  startRow: number,
+  startColumn: number,
+  columnSpan: number,
+  rowSpan: number
+) {
+  for (let row = startRow; row < startRow + rowSpan; row += 1) {
+    occupied[row] ??= [];
+    for (let column = startColumn; column < startColumn + columnSpan; column += 1) {
+      occupied[row][column] = true;
+    }
+  }
 }

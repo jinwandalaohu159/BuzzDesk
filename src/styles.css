@@ -118,7 +118,8 @@ input {
   cursor: default;
   display: grid;
   grid-template-rows: calc(var(--desktop-icon-shell-size) + 8px) 1fr;
-  place-items: center;
+  justify-items: center;
+  align-items: center;
   gap: 5px;
   transform: translate3d(0, 0, 0);
   will-change: transform;
@@ -130,12 +131,12 @@ input {
 .desktop-tile::before {
   content: "";
   position: absolute;
-  inset: 3px 6px 5px;
+  inset: 7px 10px 7px;
   opacity: 0;
   border-radius: 14px;
   background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
   border: 1px solid rgba(255, 255, 255, 0.22);
-  box-shadow: 0 16px 48px rgba(0, 0, 0, 0.2);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
   transition: opacity 130ms ease, transform 130ms ease;
   backdrop-filter: blur(12px) saturate(1.18);
 }
@@ -183,6 +184,7 @@ input {
 .desktop-tile.is-dragging {
   z-index: 50;
   pointer-events: none;
+  cursor: grabbing;
 }
 
 .desktop-tile.is-folder-open {
@@ -207,6 +209,7 @@ input {
 
 .icon-shell {
   position: relative;
+  align-self: center;
   width: var(--desktop-icon-shell-width, var(--desktop-icon-shell-size));
   height: var(--desktop-icon-shell-height, var(--desktop-icon-shell-size));
   display: grid;
@@ -308,6 +311,7 @@ input {
 
 .tile-name {
   position: relative;
+  align-self: start;
   z-index: 1;
   width: 100%;
   max-height: var(--tile-name-max-height);
@@ -317,6 +321,7 @@ input {
   line-height: var(--tile-name-line-height);
   text-align: center;
   text-shadow: var(--text-shadow);
+  transform: translate3d(0, -8px, 0);
   overflow: hidden;
   display: -webkit-box;
   -webkit-box-orient: vertical;
@@ -372,9 +377,9 @@ input {
 
 .settings-panel {
   position: absolute;
-  right: 24px;
-  bottom: 24px;
-  width: min(360px, calc(100vw - 48px));
+  left: 50%;
+  top: 50%;
+  width: min(420px, calc(100vw - 48px));
   max-height: calc(100vh - 48px);
   padding: 16px;
   border-radius: 18px;
@@ -386,6 +391,7 @@ input {
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.38);
   backdrop-filter: blur(26px) saturate(1.2);
   overflow: auto;
+  transform: translate(-50%, -50%);
   animation: settings-open 170ms cubic-bezier(.18,.88,.2,1) forwards;
 }
 
@@ -532,6 +538,33 @@ input {
     linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08)),
     rgba(255, 255, 255, 0.08);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.18);
+}
+
+.settings-segmented {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.settings-segmented button {
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  color: rgba(255, 255, 255, 0.76);
+  font-size: 13px;
+  background: transparent;
+}
+
+.settings-segmented button.is-active {
+  color: white;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.12)),
+    rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.2), 0 8px 20px rgba(0, 0, 0, 0.16);
 }
 
 .settings-stepper {
@@ -911,7 +944,8 @@ input {
   height: 124px;
   display: grid;
   grid-template-rows: calc(var(--desktop-icon-shell-size) + 8px) 1fr;
-  place-items: center;
+  justify-items: center;
+  align-items: center;
   gap: 5px;
   pointer-events: none;
   will-change: transform;
@@ -1155,10 +1189,10 @@ input {
 @keyframes settings-open {
   from {
     opacity: 0;
-    transform: translate3d(0, 14px, 0) scale(.98);
+    transform: translate(-50%, calc(-50% + 14px)) scale(.98);
   }
   to {
     opacity: 1;
-    transform: translate3d(0, 0, 0) scale(1);
+    transform: translate(-50%, -50%) scale(1);
   }
 }

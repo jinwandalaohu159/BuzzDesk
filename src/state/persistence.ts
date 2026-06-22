@@ -50,6 +50,7 @@ function toPersistedNode(node: PersistedNode | DesktopNode): PersistedNode {
     name: node.name,
     createdAt: node.createdAt,
     appearance: node.appearance,
+    position: node.position ?? null,
     children: node.children.map(toPersistedItem)
   };
 }
@@ -61,7 +62,8 @@ function toPersistedItem(node: PersistedItemNode | AppNode): PersistedItemNode {
       id: node.id,
       name: node.name,
       path: node.path ?? null,
-      launchId: node.launchId
+      launchId: node.launchId,
+      position: node.position ?? null
     };
   }
 
@@ -70,7 +72,8 @@ function toPersistedItem(node: PersistedItemNode | AppNode): PersistedItemNode {
     id: node.id,
     name: node.name,
     path: node.path ?? null,
-    launchId: node.launchId ?? null
+    launchId: node.launchId ?? null,
+    position: node.position ?? null
   };
 }
 

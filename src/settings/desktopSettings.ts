@@ -1,7 +1,11 @@
-import type { DesktopNode, DesktopSettings, FolderAppearanceSettings, FolderCoverSize } from "../types";
+import type { DesktopLayoutMode, DesktopNode, DesktopSettings, FolderAppearanceSettings, FolderCoverSize } from "../types";
 
 export const defaultDesktopSettings: DesktopSettings = {
+  layoutMode: "auto",
   appIconSize: 60,
+  desktopGapPx: 12,
+  desktopPaddingX: 28,
+  desktopPaddingY: 30,
   folderCoverSmallPx: 14,
   folderCoverMediumPx: 20,
   folderCoverLargePx: 28
@@ -41,7 +45,11 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
   const fallbackLarge = Math.max(fallbackMedium, Math.round(fallbackSmall * 2));
 
   return {
+    layoutMode: normalizeLayoutMode(settings?.layoutMode),
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),
+    desktopGapPx: clampNumber(settings?.desktopGapPx, 0, 32, defaultDesktopSettings.desktopGapPx),
+    desktopPaddingX: clampNumber(settings?.desktopPaddingX, 0, 160, defaultDesktopSettings.desktopPaddingX),
+    desktopPaddingY: clampNumber(settings?.desktopPaddingY, 0, 160, defaultDesktopSettings.desktopPaddingY),
     folderCoverSmallPx: clampNumber(
       settings?.folderCoverSmallPx,
       6,
@@ -61,6 +69,10 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
       fallbackLarge
     )
   };
+}
+
+function normalizeLayoutMode(value: unknown): DesktopLayoutMode {
+  return value === "free" ? "free" : "auto";
 }
 
 export function normalizeFolderAppearance(
@@ -235,10 +247,10 @@ export function desktopTileMetrics(settings: DesktopSettings) {
   const labelMaxHeight = labelLineHeight * labelLines;
   const width = Math.round(Math.max(32, iconShellSize + 42 - compactness * 18 - emergencyCompactness * 8));
   const height = Math.round(Math.max(38, iconShellSize + labelMaxHeight + 22 - compactness * 12 - emergencyCompactness * 10));
-  const gapX = Math.max(1, Math.round(settings.appIconSize * 0.18 - compactness * 2 - emergencyCompactness));
-  const gapY = Math.max(1, Math.round(settings.appIconSize * 0.2 - compactness * 2 - emergencyCompactness));
-  const paddingX = Math.max(2, Math.min(28, Math.round(settings.appIconSize * 0.46 - compactness * 4 - emergencyCompactness * 2)));
-  const paddingY = Math.max(2, Math.min(32, Math.round(settings.appIconSize * 0.52 - compactness * 5 - emergencyCompactness * 2)));
+  const gapX = settings.desktopGapPx;
+  const gapY = settings.desktopGapPx;
+  const paddingX = settings.desktopPaddingX;
+  const paddingY = settings.desktopPaddingY;
 
   return {
     width,

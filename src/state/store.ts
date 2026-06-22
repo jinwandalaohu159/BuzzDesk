@@ -2,6 +2,7 @@ import type {
   AppNode,
   DesktopSettings,
   DesktopNode,
+  DesktopPosition,
   FolderAppearanceSettings,
   FolderNode,
   PersistedNode
@@ -21,6 +22,11 @@ const defaultFolderName = "\u6587\u4ef6\u5939";
 interface FolderCreationResult {
   changed: boolean;
   folderId: string | null;
+}
+
+interface MovePosition {
+  id: string;
+  position: DesktopPosition;
 }
 
 export class DesktopStore {
@@ -173,13 +179,21 @@ export class DesktopStore {
     return true;
   }
 
-  dissolveFolder(folderId: string) {
+  dissolveFolder(folderId: string, childPositions: MovePosition[] = []) {
     const next: DesktopNode[] = [];
     let changed = false;
+    const positions = new Map(
+      childPositions.map((entry) => [entry.id, normalizePosition(entry.position)])
+    );
 
     for (const node of this.nodes) {
       if (node.type === "folder" && node.id === folderId) {
-        next.push(...node.children);
+        next.push(
+          ...node.children.map((child) => {
+            const position = positions.get(child.id) ?? null;
+            return position ? { ...child, position } : child;
+          })
+        );
         changed = true;
       } else {
         next.push(node);
@@ -235,6 +249,33 @@ export class DesktopStore {
     return true;
   }
 
+  updateNodePositions(positions: MovePosition[]) {
+    const updates = new Map(
+      positions.map((entry) => [entry.id, normalizePosition(entry.position)])
+    );
+    if (updates.size === 0) {
+      return false;
+    }
+
+    let changed = false;
+    this.nodes = this.nodes.map((node) => {
+      const position = updates.get(node.id);
+      if (!position) {
+        return node;
+      }
+
+      changed = true;
+      return { ...node, position };
+    });
+
+    if (!changed) {
+      return false;
+    }
+
+    this.persistAndEmit();
+    return true;
+  }
+
   createFolder(sourceId: string, targetId: string): FolderCreationResult {
     const sourceIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === sourceId);
     const targetIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === targetId);
@@ -250,7 +291,8 @@ export class DesktopStore {
       name: defaultFolderName,
       children: [target, source],
       appearance: createDefaultFolderAppearance(),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      position: target.position ?? null
     };
 
     const insertionIndex = targetIndex - (sourceIndex < targetIndex ? 1 : 0);
@@ -261,26 +303,58 @@ export class DesktopStore {
   }
 
   addDesktopItemToFolder(sourceId: string, folderId: string) {
-    const sourceIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === sourceId);
-    const source = sourceIndex >= 0 ? (this.nodes[sourceIndex] as AppNode) : null;
+    return this.addDesktopItemsToFolder([sourceId], folderId);
+  }
+
+  addDesktopItemsToFolder(sourceIds: string[], folderId: string) {
+    const movingIds = new Set(sourceIds);
+    const sources = this.nodes.filter((node): node is AppNode => node.type === "item" && movingIds.has(node.id));
     const folderExists = this.nodes.some((node) => node.type === "folder" && node.id === folderId);
-    if (!source || !folderExists) {
+    if (sources.length === 0 || !folderExists) {
       return false;
     }
 
     this.nodes = this.nodes
-      .filter((_, index) => index !== sourceIndex)
+      .filter((node) => !(node.type === "item" && movingIds.has(node.id)))
       .map((node) =>
         node.type === "folder" && node.id === folderId
           ? {
               ...node,
-              children: [...node.children, source]
+              children: [...node.children, ...sources]
             }
           : node
       );
 
     this.persistAndEmit();
     return true;
+  }
+
+  createFolderFromItems(sourceIds: string[], targetId: string): FolderCreationResult {
+    const movingIds = new Set(sourceIds.filter((id) => id !== targetId));
+    const sources = this.nodes.filter((node): node is AppNode => node.type === "item" && movingIds.has(node.id));
+    const targetIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === targetId);
+    if (sources.length === 0 || targetIndex < 0) {
+      return { changed: false, folderId: null };
+    }
+
+    const target = this.nodes[targetIndex] as AppNode;
+    const folder: FolderNode = {
+      type: "folder",
+      id: `folder:${crypto.randomUUID()}`,
+      name: defaultFolderName,
+      children: [target, ...sources],
+      appearance: createDefaultFolderAppearance(),
+      createdAt: Date.now(),
+      position: target.position ?? null
+    };
+
+    const insertionIndex = targetIndex - this.nodes.slice(0, targetIndex).filter((node) => movingIds.has(node.id)).length;
+    this.nodes = this.nodes.filter(
+      (node, index) => index !== targetIndex && !(node.type === "item" && movingIds.has(node.id))
+    );
+    this.nodes.splice(clampIndex(insertionIndex, this.nodes.length), 0, folder);
+    this.persistAndEmit();
+    return { changed: true, folderId: folder.id };
   }
 
   addFolderChildToFolder(sourceFolderId: string, childId: string, targetFolderId: string) {
@@ -312,19 +386,26 @@ export class DesktopStore {
     return true;
   }
 
-  moveFolderChildToDesktop(folderId: string, childId: string, targetIndex = this.nodes.length) {
+  moveFolderChildToDesktop(
+    folderId: string,
+    childId: string,
+    targetIndex = this.nodes.length,
+    childPosition?: DesktopPosition | null
+  ) {
     const folder = this.nodes.find((node): node is FolderNode => node.type === "folder" && node.id === folderId);
     const child = folder?.children.find((item) => item.id === childId) ?? null;
     if (!child) {
       return false;
     }
 
+    const position = normalizePosition(childPosition) ?? child.position ?? null;
+    const desktopChild = position ? { ...child, position } : child;
     this.nodes = this.nodes.map((node) =>
       node.type === "folder" && node.id === folderId
         ? { ...node, children: node.children.filter((item) => item.id !== childId) }
         : node
     );
-    this.nodes.splice(clampIndex(targetIndex, this.nodes.length), 0, child);
+    this.nodes.splice(clampIndex(targetIndex, this.nodes.length), 0, desktopChild);
     this.persistAndEmit();
     return true;
   }
@@ -346,7 +427,8 @@ export class DesktopStore {
       name: defaultFolderName,
       children: [target, child],
       appearance: createDefaultFolderAppearance(),
-      createdAt: Date.now()
+      createdAt: Date.now(),
+      position: target.position ?? null
     };
 
     this.nodes = this.nodes
@@ -366,7 +448,12 @@ export class DesktopStore {
 
     for (const node of this.nodes) {
       if (node.type === "folder" && node.children.length <= 1) {
-        normalized.push(...node.children);
+        const inheritedPosition = normalizePosition(node.position);
+        normalized.push(
+          ...node.children.map((child) =>
+            inheritedPosition ? { ...child, position: inheritedPosition } : child
+          )
+        );
       } else {
         normalized.push(node);
       }
@@ -392,7 +479,7 @@ function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNod
     if (node.type === "item") {
       const current = resolveScannedItem(node, scanned, scannedByPath, used);
       if (current) {
-        nodes.push(current);
+        nodes.push({ ...current, position: normalizePosition(node.position) });
         used.add(current.id);
       }
       continue;
@@ -410,6 +497,7 @@ function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNod
         id: node.id,
         name: node.name,
         createdAt: node.createdAt,
+        position: normalizePosition(node.position),
         appearance: normalizeFolderAppearance(node.appearance, defaultFolderAppearance),
         children
       });
@@ -429,6 +517,22 @@ function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNod
 
 function clampIndex(index: number, length: number) {
   return Math.min(length, Math.max(0, index));
+}
+
+function normalizePosition(position: unknown): DesktopPosition | null {
+  if (!position || typeof position !== "object") {
+    return null;
+  }
+
+  const value = position as Partial<DesktopPosition>;
+  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+    return null;
+  }
+
+  return {
+    x: Math.round(Number(value.x)),
+    y: Math.round(Number(value.y))
+  };
 }
 
 function sameItem(a: AppNode, b: AppNode) {
