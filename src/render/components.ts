@@ -278,8 +278,9 @@ function renderFolderChildRenameInput(folderId: string, childId: string, name: s
 
 export function renderSettingsLayer(options: {
   settings: DesktopSettings;
+  view: "main" | "layout";
 }) {
-  const { settings } = options;
+  const { settings, view } = options;
   const backdrop = document.createElement("div");
   backdrop.className = "settings-backdrop";
   backdrop.dataset.settingsClose = "true";
@@ -292,7 +293,10 @@ export function renderSettingsLayer(options: {
   header.className = "settings-header";
 
   const title = document.createElement("h2");
+  title.textContent = view === "layout" ? "\u5e03\u5c40\u8bbe\u7f6e" : "\u8bbe\u7f6e";
   title.textContent = "设置";
+
+  title.textContent = view === "layout" ? "\u5e03\u5c40\u8bbe\u7f6e" : "\u8bbe\u7f6e";
 
   const close = document.createElement("button");
   close.className = "settings-close";
@@ -310,12 +314,25 @@ export function renderSettingsLayer(options: {
   actions.className = "settings-actions";
   actions.append(reset, close);
 
-  header.append(title, actions);
+  const titleGroup = document.createElement("div");
+  titleGroup.className = "settings-title";
+  if (view !== "main") {
+    const back = document.createElement("button");
+    back.className = "settings-back";
+    back.type = "button";
+    back.dataset.settingsView = "main";
+    back.setAttribute("aria-label", "\u8fd4\u56de");
+    titleGroup.append(back);
+  }
+  titleGroup.append(title);
+
+  header.append(titleGroup, actions);
   panel.append(header);
 
   const controls = document.createElement("div");
   controls.className = "settings-controls";
 
+  /*
   controls.append(
     renderLayoutModeControl(settings.layoutMode),
     renderAppPriorityControl(settings.appPriority),
@@ -328,8 +345,57 @@ export function renderSettingsLayer(options: {
     renderSettingControl("文件夹图标 大", "folderCoverLargePx", settings.folderCoverLargePx, 6, 40, "px")
   );
 
+  */
+  controls.replaceChildren(...renderSettingsControls(settings, view));
+
   panel.append(controls);
   return [backdrop, panel];
+}
+
+function renderSettingsControls(settings: DesktopSettings, view: "main" | "layout") {
+  if (view === "layout") {
+    return [
+      renderLayoutModeControl(settings.layoutMode),
+      renderSettingControl("\u684c\u9762\u56fe\u6807", "appIconSize", settings.appIconSize, 48, 76, "px"),
+      renderSettingControl("\u56fe\u6807\u95f4\u8ddd", "desktopGapPx", settings.desktopGapPx, 0, 32, "px"),
+      renderSettingControl("\u5de6\u53f3\u8fb9\u8ddd", "desktopPaddingX", settings.desktopPaddingX, 0, 160, "px"),
+      renderSettingControl("\u4e0a\u4e0b\u8fb9\u8ddd", "desktopPaddingY", settings.desktopPaddingY, 0, 160, "px"),
+      renderSettingControl("\u6587\u4ef6\u5939\u56fe\u6807 \u5c0f", "folderCoverSmallPx", settings.folderCoverSmallPx, 6, 40, "px"),
+      renderSettingControl("\u6587\u4ef6\u5939\u56fe\u6807 \u4e2d", "folderCoverMediumPx", settings.folderCoverMediumPx, 6, 40, "px"),
+      renderSettingControl("\u6587\u4ef6\u5939\u56fe\u6807 \u5927", "folderCoverLargePx", settings.folderCoverLargePx, 6, 40, "px")
+    ];
+  }
+
+  return [
+    renderSettingsNavControl(
+      "\u5e03\u5c40\u8bbe\u7f6e",
+      settings.layoutMode === "free"
+        ? "\u81ea\u7531\u5e03\u5c40\u3001\u56fe\u6807\u3001\u95f4\u8ddd\u548c\u8fb9\u8ddd"
+        : "\u81ea\u52a8\u6392\u5217\u3001\u56fe\u6807\u3001\u95f4\u8ddd\u548c\u8fb9\u8ddd",
+      "layout"
+    ),
+    renderAppPriorityControl(settings.appPriority)
+  ];
+}
+
+function renderSettingsNavControl(label: string, detail: string, view: "layout") {
+  const button = document.createElement("button");
+  button.className = "settings-nav-row";
+  button.type = "button";
+  button.dataset.settingsView = view;
+
+  const text = document.createElement("span");
+  text.className = "settings-nav-text";
+
+  const name = document.createElement("span");
+  name.textContent = label;
+
+  const subtitle = document.createElement("span");
+  subtitle.textContent = detail;
+
+  text.append(name, subtitle);
+  button.append(text);
+  return button;
 }
 
 function renderFolderPageItems(
@@ -412,7 +478,14 @@ function renderAppPriorityControl(priority: DesktopSettings["appPriority"]) {
   meta.className = "settings-row-meta";
 
   const name = document.createElement("span");
-  name.textContent = "\u5168\u5c40\u4f18\u5148\u7ea7";
+  name.className = "settings-label-with-help";
+  name.textContent = "\u8fdb\u7a0b\u4f18\u5148\u7ea7";
+
+  const help = document.createElement("span");
+  help.className = "settings-help";
+  help.textContent = "?";
+  help.title = "\u8c03\u6574\u672c\u5e94\u7528\u5728 Windows \u4e2d\u83b7\u5f97 CPU \u8c03\u5ea6\u7684\u4f18\u5148\u7a0b\u5ea6\u3002\u8f83\u9ad8\u662f\u63a8\u8350\u503c\uff0c\u9ad8\u53ef\u80fd\u5f71\u54cd\u5176\u4ed6\u7a0b\u5e8f\u3002";
+  name.append(help);
 
   const output = document.createElement("output");
   output.textContent =
@@ -420,22 +493,26 @@ function renderAppPriorityControl(priority: DesktopSettings["appPriority"]) {
 
   meta.append(name, output);
 
-  const control = document.createElement("div");
-  control.className = "settings-segmented";
+  const control = document.createElement("label");
+  control.className = "settings-select-wrap";
+
+  const select = document.createElement("select");
+  select.className = "settings-select";
+  select.dataset.settingAppPriority = "true";
 
   [
     { value: "normal", label: "\u6b63\u5e38" },
     { value: "aboveNormal", label: "\u8f83\u9ad8" },
     { value: "high", label: "\u9ad8" }
   ].forEach((option) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.settingAppPriority = option.value;
-    button.classList.toggle("is-active", priority === option.value);
-    button.textContent = option.label;
-    control.append(button);
+    const item = document.createElement("option");
+    item.value = option.value;
+    item.selected = priority === option.value;
+    item.textContent = option.label;
+    select.append(item);
   });
 
+  control.append(select);
   row.append(meta, control);
   return row;
 }

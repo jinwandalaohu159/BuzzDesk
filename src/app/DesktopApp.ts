@@ -172,6 +172,7 @@ export class DesktopApp {
   private editingFolder = false;
   private folderClosing = false;
   private settingsOpen = false;
+  private settingsView: "main" | "layout" = "main";
   private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
   private renamingId: string | null = null;
@@ -349,6 +350,7 @@ export class DesktopApp {
       this.clearContextOverlay();
       this.closeFolderNow();
       this.settingsOpen = true;
+      this.settingsView = "main";
       this.renderSettingsLayer();
     });
   }
@@ -544,7 +546,8 @@ export class DesktopApp {
 
     this.settingsLayer.replaceChildren(
       ...renderSettingsLayer({
-        settings: this.store.getSettings()
+        settings: this.store.getSettings(),
+        view: this.settingsView
       })
     );
   }
@@ -2159,9 +2162,9 @@ export class DesktopApp {
   private onSettingsClick(event: MouseEvent) {
     const close = (event.target as HTMLElement).closest("[data-settings-close]");
     const reset = (event.target as HTMLElement).closest("[data-settings-reset]");
+    const viewButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-settings-view]");
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
     const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
-    const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
 
     if (reset) {
       this.cancelSettingsPreview();
@@ -2170,17 +2173,16 @@ export class DesktopApp {
       return;
     }
 
-    if (layoutModeButton?.dataset.settingLayoutMode === "auto" || layoutModeButton?.dataset.settingLayoutMode === "free") {
+    if (viewButton?.dataset.settingsView === "main" || viewButton?.dataset.settingsView === "layout") {
       this.cancelSettingsPreview();
-      this.switchDesktopLayoutMode(layoutModeButton.dataset.settingLayoutMode);
+      this.settingsView = viewButton.dataset.settingsView;
+      this.renderSettingsLayer();
       return;
     }
 
-    if (isAppProcessPriority(priorityButton?.dataset.settingAppPriority)) {
+    if (layoutModeButton?.dataset.settingLayoutMode === "auto" || layoutModeButton?.dataset.settingLayoutMode === "free") {
       this.cancelSettingsPreview();
-      const appPriority = priorityButton.dataset.settingAppPriority;
-      this.store.updateSettings({ appPriority });
-      void this.applyAppPrioritySetting(appPriority);
+      this.switchDesktopLayoutMode(layoutModeButton.dataset.settingLayoutMode);
       return;
     }
 
@@ -2203,6 +2205,7 @@ export class DesktopApp {
 
     this.cancelSettingsPreview();
     this.settingsOpen = false;
+    this.settingsView = "main";
     this.renderSettingsLayer();
   }
 
@@ -2217,6 +2220,17 @@ export class DesktopApp {
   }
 
   private onSettingsChange(event: Event) {
+    const prioritySelect = (event.target as HTMLElement).closest<HTMLSelectElement>("[data-setting-app-priority]");
+    if (prioritySelect) {
+      const appPriority = prioritySelect.value;
+      if (isAppProcessPriority(appPriority)) {
+        this.cancelSettingsPreview();
+        this.store.updateSettings({ appPriority });
+        void this.applyAppPrioritySetting(appPriority);
+      }
+      return;
+    }
+
     const input = (event.target as HTMLElement).closest<HTMLInputElement>("[data-setting-range]");
     const key = input?.dataset.settingRange;
     if (!input || !key || !(key in this.getSettingsValueSource())) {
