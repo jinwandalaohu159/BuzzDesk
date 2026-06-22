@@ -299,10 +299,10 @@ export class DesktopApp {
   }
 
   private bindEvents() {
-    this.grid.addEventListener("pointerdown", (event) => this.onDesktopPointerDown(event));
-    this.grid.addEventListener("dblclick", (event) => this.onDesktopDoubleClick(event));
-    this.grid.addEventListener("click", (event) => this.onDesktopClick(event));
-    this.grid.addEventListener("contextmenu", (event) => this.onDesktopContextMenu(event));
+    this.root.addEventListener("pointerdown", (event) => this.onDesktopPointerDown(event));
+    this.root.addEventListener("dblclick", (event) => this.onDesktopDoubleClick(event));
+    this.root.addEventListener("click", (event) => this.onDesktopClick(event));
+    this.root.addEventListener("contextmenu", (event) => this.onDesktopContextMenu(event));
     this.grid.addEventListener("focusout", (event) => void this.onRenameFocusOut(event));
     this.grid.addEventListener("keydown", (event) => void this.onGridKeyDown(event));
     this.folderLayer.addEventListener("click", (event) => this.onFolderLayerClick(event));
@@ -324,6 +324,15 @@ export class DesktopApp {
     window.addEventListener("resize", () => this.renderWithFlip());
     window.addEventListener("pointerdown", (event) => this.onGlobalPointerDown(event), true);
     window.addEventListener("keydown", (event) => void this.onWindowKeyDown(event));
+  }
+
+  private isDesktopSurfaceEvent(event: Event) {
+    const target = event.target as HTMLElement | null;
+    return Boolean(
+      target &&
+        this.root.contains(target) &&
+        !target.closest(".folder-layer, .settings-layer, .context-menu-layer, .startup-error")
+    );
   }
 
   private async installTraySettingsHook() {
@@ -586,6 +595,10 @@ export class DesktopApp {
   }
 
   private onDesktopClick(event: MouseEvent) {
+    if (!this.isDesktopSurfaceEvent(event)) {
+      return;
+    }
+
     if (this.consumeSuppressedClick()) {
       return;
     }
@@ -608,6 +621,10 @@ export class DesktopApp {
   }
 
   private onDesktopDoubleClick(event: MouseEvent) {
+    if (!this.isDesktopSurfaceEvent(event)) {
+      return;
+    }
+
     event.preventDefault();
     event.stopPropagation();
 
@@ -630,6 +647,10 @@ export class DesktopApp {
   }
 
   private onDesktopPointerDown(event: PointerEvent) {
+    if (!this.isDesktopSurfaceEvent(event)) {
+      return;
+    }
+
     if (event.button !== 0) {
       return;
     }
@@ -706,7 +727,7 @@ export class DesktopApp {
     };
 
     try {
-      this.grid.setPointerCapture?.(event.pointerId);
+      this.root.setPointerCapture?.(event.pointerId);
     } catch {
       // Window listeners below keep the marquee alive if capture is unavailable.
     }
@@ -727,7 +748,7 @@ export class DesktopApp {
     marquee.currentY = event.clientY;
     const moved = Math.hypot(marquee.currentX - marquee.startX, marquee.currentY - marquee.startY);
     if (!marquee.started) {
-      if (moved < 5) {
+      if (moved < 1) {
         return;
       }
 
@@ -837,6 +858,10 @@ export class DesktopApp {
   }
 
   private onDesktopContextMenu(event: MouseEvent) {
+    if (!this.isDesktopSurfaceEvent(event)) {
+      return;
+    }
+
     event.preventDefault();
     this.settingsOpen = false;
     this.clearContextOverlay();

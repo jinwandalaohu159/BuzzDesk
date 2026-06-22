@@ -67,6 +67,7 @@ input {
   background: rgba(0, 0, 0, 0.001);
   scrollbar-width: none;
   overscroll-behavior: contain;
+  touch-action: none;
 }
 
 .desktop-shell::-webkit-scrollbar {
@@ -81,6 +82,7 @@ input {
   height: var(--desktop-content-height);
   width: var(--desktop-content-width);
   contain: layout paint style;
+  touch-action: none;
 }
 
 .desktop-grid {
@@ -91,6 +93,7 @@ input {
   min-height: 100vh;
   width: var(--desktop-content-width);
   height: var(--desktop-content-height);
+  touch-action: none;
 }
 
 .selection-marquee {
