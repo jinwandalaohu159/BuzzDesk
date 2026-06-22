@@ -2321,6 +2321,18 @@ export class DesktopApp {
   }
 
   private async onContextMenuClick(event: MouseEvent) {
+    const submenuButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-context-submenu]");
+    if (submenuButton) {
+      const item = submenuButton.closest<HTMLElement>(".context-menu-item");
+      this.contextMenuLayer.querySelectorAll(".context-menu-item.is-submenu-open").forEach((element) => {
+        if (element !== item) {
+          element.classList.remove("is-submenu-open");
+        }
+      });
+      item?.classList.toggle("is-submenu-open");
+      return;
+    }
+
     const action = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-context-action]")?.dataset
       .contextAction as DesktopContextMenuAction | undefined;
     if (!action || !this.contextMenu) {

@@ -1,10 +1,11 @@
 import type { DesktopContextMenuAction, DesktopNode, AppNode, FolderCoverSize } from "../types";
 
 export interface ContextMenuItemModel {
-  action: DesktopContextMenuAction;
+  action?: DesktopContextMenuAction;
   label: string;
   disabled?: boolean;
   checked?: boolean;
+  submenu?: ContextMenuItemModel[];
 }
 
 export function desktopFallbackMenuItems(): ContextMenuItemModel[] {
@@ -47,13 +48,18 @@ export function itemFallbackMenuItems(node: DesktopNode | AppNode | null, contex
 export function folderContextMenuItems(currentCoverSize: FolderCoverSize): ContextMenuItemModel[] {
   return [
     { action: "rename" as const, label: "重命名" },
-    { action: "folderRatio" as const, label: "比例" },
-    { action: "folderIconSmall" as const, label: "图标小", checked: currentCoverSize === "small" },
-    { action: "folderIconMedium" as const, label: "图标中", checked: currentCoverSize === "medium" },
-    { action: "folderIconLarge" as const, label: "图标大", checked: currentCoverSize === "large" },
+    { action: "folderRatio" as const, label: "布局" },
+    {
+      label: "图标大小",
+      submenu: [
+        { action: "folderIconSmall" as const, label: "小", checked: currentCoverSize === "small" },
+        { action: "folderIconMedium" as const, label: "中", checked: currentCoverSize === "medium" },
+        { action: "folderIconLarge" as const, label: "大", checked: currentCoverSize === "large" }
+      ]
+    },
     {
       action: "delete" as const,
-      label: "解散文件夹"
+      label: "解散"
     }
   ];
 }

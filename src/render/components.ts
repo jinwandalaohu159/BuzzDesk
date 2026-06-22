@@ -447,30 +447,66 @@ function renderSettingControl(
 export function renderContextMenu(options: {
   x: number;
   y: number;
-  items: Array<{ action: DesktopContextMenuAction; label: string; disabled?: boolean; checked?: boolean }>;
+  items: RenderContextMenuItem[];
 }) {
   const menu = document.createElement("div");
   menu.className = "context-menu";
   const width = 176;
+  const submenuWidth = 120;
+  const submenuGap = 6;
   const height = Math.max(44, options.items.length * 34 + 12);
-  menu.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, options.x))}px`;
+  const hasSubmenu = options.items.some((item) => item.submenu?.length);
+  const maxLeft = window.innerWidth - width - (hasSubmenu ? submenuWidth + submenuGap : 0) - 8;
+  menu.style.left = `${Math.max(8, Math.min(maxLeft, options.x))}px`;
   menu.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, options.y))}px`;
 
   options.items.forEach((item) => {
-    const button = document.createElement("button");
-    button.type = "button";
-    button.dataset.contextAction = item.action;
-    button.disabled = Boolean(item.disabled);
+    const itemElement = document.createElement("div");
+    itemElement.className = "context-menu-item";
+    itemElement.append(renderContextMenuButton(item, Boolean(item.submenu?.length)));
 
-    if (item.checked) {
-      button.classList.add("is-checked");
+    if (item.submenu?.length) {
+      const submenu = document.createElement("div");
+      submenu.className = "context-submenu";
+      submenu.style.minWidth = `${submenuWidth}px`;
+      item.submenu.forEach((child) => submenu.append(renderContextMenuButton(child)));
+      itemElement.append(submenu);
     }
 
-    button.textContent = item.checked ? `✓ ${item.label}` : item.label;
-    menu.append(button);
+    menu.append(itemElement);
   });
 
   return menu;
+}
+
+interface RenderContextMenuItem {
+  action?: DesktopContextMenuAction;
+  label: string;
+  disabled?: boolean;
+  checked?: boolean;
+  submenu?: RenderContextMenuItem[];
+}
+
+function renderContextMenuButton(item: RenderContextMenuItem, hasSubmenu = false) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.disabled = Boolean(item.disabled);
+
+  if (item.action) {
+    button.dataset.contextAction = item.action;
+  }
+
+  if (hasSubmenu) {
+    button.dataset.contextSubmenu = "true";
+    button.classList.add("has-submenu");
+  }
+
+  if (item.checked) {
+    button.classList.add("is-checked");
+  }
+
+  button.textContent = item.checked ? `✓ ${item.label}` : item.label;
+  return button;
 }
 
 export function renderRatioDialog(options: {
