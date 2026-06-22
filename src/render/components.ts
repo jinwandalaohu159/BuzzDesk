@@ -294,9 +294,6 @@ export function renderSettingsLayer(options: {
 
   const title = document.createElement("h2");
   title.textContent = view === "layout" ? "\u5e03\u5c40\u8bbe\u7f6e" : "\u8bbe\u7f6e";
-  title.textContent = "设置";
-
-  title.textContent = view === "layout" ? "\u5e03\u5c40\u8bbe\u7f6e" : "\u8bbe\u7f6e";
 
   const close = document.createElement("button");
   close.className = "settings-close";
@@ -331,21 +328,6 @@ export function renderSettingsLayer(options: {
 
   const controls = document.createElement("div");
   controls.className = "settings-controls";
-
-  /*
-  controls.append(
-    renderLayoutModeControl(settings.layoutMode),
-    renderAppPriorityControl(settings.appPriority),
-    renderSettingControl("桌面图标", "appIconSize", settings.appIconSize, 48, 76, "px"),
-    renderSettingControl("图标间距", "desktopGapPx", settings.desktopGapPx, 0, 32, "px"),
-    renderSettingControl("左右边距", "desktopPaddingX", settings.desktopPaddingX, 0, 160, "px"),
-    renderSettingControl("上下边距", "desktopPaddingY", settings.desktopPaddingY, 0, 160, "px"),
-    renderSettingControl("文件夹图标 小", "folderCoverSmallPx", settings.folderCoverSmallPx, 6, 40, "px"),
-    renderSettingControl("文件夹图标 中", "folderCoverMediumPx", settings.folderCoverMediumPx, 6, 40, "px"),
-    renderSettingControl("文件夹图标 大", "folderCoverLargePx", settings.folderCoverLargePx, 6, 40, "px")
-  );
-
-  */
   controls.replaceChildren(...renderSettingsControls(settings, view));
 
   panel.append(controls);

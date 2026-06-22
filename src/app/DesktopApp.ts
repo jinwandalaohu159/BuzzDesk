@@ -238,7 +238,7 @@ export class DesktopApp {
       }
 
       this.store.hydrate(items);
-      void this.applyAppPrioritySetting(this.store.getSettings().appPriority);
+      void setAppProcessPriority(this.store.getSettings().appPriority);
       this.desktopScanSignature = desktopItemsSignature(items);
 
       const desktopLayerAttached = await attachDesktopLayerWindow();
@@ -2169,7 +2169,7 @@ export class DesktopApp {
     if (reset) {
       this.cancelSettingsPreview();
       this.store.updateSettings(defaultDesktopSettings);
-      void this.applyAppPrioritySetting(defaultDesktopSettings.appPriority);
+      void setAppProcessPriority(defaultDesktopSettings.appPriority);
       return;
     }
 
@@ -2226,7 +2226,7 @@ export class DesktopApp {
       if (isAppProcessPriority(appPriority)) {
         this.cancelSettingsPreview();
         this.store.updateSettings({ appPriority });
-        void this.applyAppPrioritySetting(appPriority);
+        void setAppProcessPriority(appPriority);
       }
       return;
     }
@@ -2354,10 +2354,6 @@ export class DesktopApp {
     }
 
     this.renderWithFlip();
-  }
-
-  private async applyAppPrioritySetting(priority: AppProcessPriority) {
-    await setAppProcessPriority(priority);
   }
 
   private seedFreeLayoutPositions() {
