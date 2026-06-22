@@ -91,14 +91,15 @@ export function desktopIndexForPoint(
 export function panelSizeFor(
   viewportWidth: number,
   viewportHeight: number,
-  appearance: FolderAppearanceSettings
+  appearance: FolderAppearanceSettings,
+  footerHeight = 0
 ): FolderPanelSize {
   const desiredColumns = clamp(appearance.folderPanelColumns, folderRatioMin, folderRatioMax);
   const desiredRows = clamp(appearance.folderPanelRows, folderRatioMin, folderRatioMax);
   const maxWidth = Math.max(1, viewportWidth - 40);
   const maxHeight = Math.max(1, viewportHeight - 56);
   const { columns, itemWidth } = fitFolderPanelColumns(desiredColumns, maxWidth);
-  const maxContentHeight = Math.max(1, maxHeight - 78);
+  const maxContentHeight = Math.max(1, maxHeight - 78 - footerHeight);
   const availableRows = Math.floor(
     (maxContentHeight - folderGrid.paddingY * 2 + folderGrid.gapY) / (folderGrid.itemHeight + folderGrid.gapY)
   );
@@ -106,7 +107,7 @@ export function panelSizeFor(
   const contentHeight =
     folderGrid.paddingY * 2 + visibleRows * folderGrid.itemHeight + (visibleRows - 1) * folderGrid.gapY;
   const naturalWidth = folderGrid.paddingX * 2 + columns * itemWidth + (columns - 1) * folderGrid.gapX;
-  const naturalHeight = 78 + contentHeight;
+  const naturalHeight = 78 + contentHeight + footerHeight;
 
   return {
     width: Math.min(maxWidth, naturalWidth),

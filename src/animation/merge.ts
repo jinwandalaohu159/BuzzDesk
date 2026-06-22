@@ -12,9 +12,6 @@ export async function playMergeIntoTarget(
 
   const ghost = sourceElement.cloneNode(true) as HTMLElement;
   const targetGhost = targetElement.cloneNode(true) as HTMLElement;
-  targetGhost.classList.remove("is-merge-target");
-  targetGhost.style.removeProperty("--merge-pull-x");
-  targetGhost.style.removeProperty("--merge-pull-y");
   const originalVisibility = sourceElement.style.visibility;
   const originalTargetVisibility = targetElement.style.visibility;
   const sourceScale = Math.max(0.24, Math.min(0.38, targetRect.width / sourceRect.width * 0.38));

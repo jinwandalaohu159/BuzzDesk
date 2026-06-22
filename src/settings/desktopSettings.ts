@@ -1,5 +1,4 @@
 import type { DesktopNode, DesktopSettings, FolderAppearanceSettings, FolderCoverSize } from "../types";
-import { layoutDesktopFlow } from "../layout/flow";
 
 export const defaultDesktopSettings: DesktopSettings = {
   appIconSize: 60,
@@ -110,28 +109,48 @@ export function folderCoverCssVariables(
 ): Record<string, string> {
   const normalized = normalizeFolderAppearance(appearance);
   const cellSize = folderCoverCellSizeForAppearance(settings, normalized);
+  const columns = normalized.folderPanelColumns;
+  const rows = normalized.folderPanelRows;
   const coverGap = Math.max(2, Math.round(cellSize * 0.18));
-  const coverPadding = Math.max(4, Math.round(cellSize * 0.42));
+  const basePadding = Math.max(4, Math.round(cellSize * 0.42));
+  const shortAxisExtra = folderCoverShortAxisPaddingExtra(cellSize, columns, rows);
+  const coverPaddingX = basePadding + (columns < rows ? shortAxisExtra : 0);
+  const coverPaddingY = basePadding + (rows < columns ? shortAxisExtra : 0);
   const rawCoverWidth =
-    normalized.folderPanelColumns * cellSize +
-    (normalized.folderPanelColumns - 1) * coverGap +
-    coverPadding * 2;
+    columns * cellSize +
+    (columns - 1) * coverGap +
+    coverPaddingX * 2;
   const rawCoverHeight =
-    normalized.folderPanelRows * cellSize +
-    (normalized.folderPanelRows - 1) * coverGap +
-    coverPadding * 2;
+    rows * cellSize +
+    (rows - 1) * coverGap +
+    coverPaddingY * 2;
+  const coverRadius = folderCoverRadius(rawCoverWidth, rawCoverHeight);
 
   return {
     "--folder-cover-width": `${rawCoverWidth}px`,
     "--folder-cover-height": `${rawCoverHeight}px`,
     "--folder-cover-mini-icon-size": `${cellSize}px`,
-    "--folder-cover-padding-x": `${coverPadding}px`,
-    "--folder-cover-padding-y": `${coverPadding}px`,
+    "--folder-cover-padding-x": `${coverPaddingX}px`,
+    "--folder-cover-padding-y": `${coverPaddingY}px`,
     "--folder-cover-gap": `${coverGap}px`,
+    "--folder-cover-radius": `${coverRadius}px`,
     "--folder-cover-icon-radius": `${Math.max(3, Math.round(cellSize * 0.26))}px`,
-    "--folder-cover-columns": `${normalized.folderPanelColumns}`,
-    "--folder-cover-rows": `${normalized.folderPanelRows}`
+    "--folder-cover-columns": `${columns}`,
+    "--folder-cover-rows": `${rows}`
   };
+}
+
+function folderCoverShortAxisPaddingExtra(cellSize: number, columns: number, rows: number) {
+  const shortSide = Math.max(1, Math.min(columns, rows));
+  const longSide = Math.max(columns, rows);
+  const ratioSpread = Math.max(0, longSide / shortSide - 1);
+
+  return Math.round(cellSize * Math.min(0.42, ratioSpread * 0.12));
+}
+
+function folderCoverRadius(width: number, height: number) {
+  const shortSide = Math.min(width, height);
+  return Math.round(Math.max(10, Math.min(28, shortSide * 0.28)));
 }
 
 /**
@@ -194,13 +213,11 @@ export function fitDesktopSettings(
   viewportHeight: number
 ) {
   let appIconSize = settings.appIconSize;
-  const nodes = Array.isArray(nodesOrItemCount) ? nodesOrItemCount : null;
   const itemCount = typeof nodesOrItemCount === "number" ? nodesOrItemCount : nodesOrItemCount.length;
-  const fitItemCount = nodes?.length ?? itemCount;
 
   while (
     appIconSize > 8 &&
-    !desktopLayoutFits({ ...settings, appIconSize }, fitItemCount, viewportWidth, viewportHeight)
+    !desktopLayoutFits({ ...settings, appIconSize }, itemCount, viewportWidth, viewportHeight)
   ) {
     appIconSize -= 2;
   }
@@ -269,19 +286,12 @@ function legacyCoverSizeFromCellSize(cellSize: number | null): FolderCoverSize |
 
 function desktopLayoutFits(
   settings: DesktopSettings,
-  nodesOrItemCount: DesktopNode[] | number,
+  itemCount: number,
   viewportWidth: number,
   viewportHeight: number
 ) {
-  const nodes = Array.isArray(nodesOrItemCount) ? nodesOrItemCount : null;
-  const itemCount = typeof nodesOrItemCount === "number" ? nodesOrItemCount : nodesOrItemCount.length;
   if (itemCount <= 0) {
     return true;
-  }
-
-  if (nodes) {
-    const bounds = desktopLayoutBoundsForNodes(settings, nodes, viewportWidth);
-    return bounds.width <= viewportWidth && bounds.height <= viewportHeight;
   }
 
   const metrics = desktopTileMetrics(settings);
@@ -296,24 +306,4 @@ function desktopLayoutFits(
   const contentHeight = metrics.paddingY * 2 + rows * metrics.height + Math.max(0, rows - 1) * metrics.gapY;
 
   return contentWidth <= viewportWidth && contentHeight <= viewportHeight;
-}
-
-function desktopLayoutBoundsForNodes(
-  settings: DesktopSettings,
-  nodes: DesktopNode[],
-  viewportWidth: number
-) {
-  const base = desktopTileMetrics(settings);
-  const layout = layoutDesktopFlow(
-    nodes,
-    viewportWidth,
-    base,
-    (node) => desktopNodeTileMetrics(settings, node),
-    (node) => shouldIsolateDesktopNode(settings, node)
-  );
-
-  return {
-    width: layout.contentWidth,
-    height: layout.contentHeight
-  };
 }

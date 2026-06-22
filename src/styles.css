@@ -22,6 +22,7 @@
   --folder-cover-padding-x: 6px;
   --folder-cover-padding-y: 6px;
   --folder-cover-gap: 3px;
+  --folder-cover-radius: 17px;
   --folder-cover-icon-radius: 4px;
 }
 
@@ -166,6 +167,20 @@ input {
   pointer-events: none;
 }
 
+.desktop-tile.is-folder-open {
+  pointer-events: none;
+}
+
+.desktop-tile.is-folder-open .icon-shell {
+  opacity: 0;
+  transform: scale(.86);
+}
+
+.desktop-tile.is-folder-open .tile-name {
+  opacity: 0;
+  transform: translate3d(0, 4px, 0);
+}
+
 .desktop-tile.is-dragging .icon-shell,
 .floating-drag .icon-shell {
   transform: scale(1.08);
@@ -178,7 +193,7 @@ input {
   height: var(--desktop-icon-shell-height, var(--desktop-icon-shell-size));
   display: grid;
   place-items: center;
-  transition: transform 160ms cubic-bezier(.2,.9,.2,1), filter 160ms ease;
+  transition: opacity 150ms ease, transform 160ms cubic-bezier(.2,.9,.2,1), filter 160ms ease;
   z-index: 1;
 }
 
@@ -240,7 +255,7 @@ input {
   width: var(--folder-cover-width);
   height: var(--folder-cover-height);
   padding: var(--folder-cover-padding-y) var(--folder-cover-padding-x);
-  border-radius: 18px;
+  border-radius: var(--folder-cover-radius);
   display: grid;
   grid-template-columns: repeat(var(--folder-cover-columns, 3), 1fr);
   grid-template-rows: repeat(var(--folder-cover-rows, 3), 1fr);
@@ -289,6 +304,7 @@ input {
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   word-break: break-word;
+  transition: opacity 150ms ease, transform 160ms cubic-bezier(.2,.9,.2,1);
 }
 
 .tile-rename {
@@ -657,6 +673,10 @@ input {
   backface-visibility: hidden;
 }
 
+.folder-panel.has-pages {
+  grid-template-rows: 70px minmax(0, 1fr) 30px;
+}
+
 .folder-panel.is-static {
   opacity: 1;
   transform: translate(-50%, -50%) scale(1);
@@ -691,18 +711,41 @@ input {
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
 }
 
+.folder-items-viewport {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  display: block;
+}
+
+.folder-pages {
+  height: 100%;
+  display: flex;
+  transform: translate3d(calc(var(--folder-page-offset, 0%) + var(--folder-page-drag-x, 0px)), 0, 0);
+  transition: transform 280ms cubic-bezier(.16, 1, .3, 1);
+  will-change: transform;
+  touch-action: pan-y;
+}
+
 .folder-items {
   display: grid;
   justify-content: center;
   align-content: start;
+  flex: 0 0 100%;
+  box-sizing: border-box;
   min-height: 0;
-  padding: 16px 28px 28px;
+  padding: 16px 28px 20px;
   gap: 12px 14px;
   overflow-x: hidden;
-  overflow-y: auto;
+  overflow-y: hidden;
   overscroll-behavior: contain;
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  touch-action: pan-y;
+}
+
+.folder-panel.is-page-dragging .folder-pages {
+  transition: none;
 }
 
 .folder-items::-webkit-scrollbar {
@@ -721,6 +764,61 @@ input {
 
 .folder-items::-webkit-scrollbar-thumb:hover {
   background: rgba(255, 255, 255, 0.4);
+}
+
+.folder-pager {
+  display: grid;
+  place-items: center;
+  min-height: 30px;
+  padding: 0 24px 12px;
+}
+
+.folder-page-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.folder-page-dot {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 150ms ease;
+}
+
+.folder-page-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  transition: width 170ms ease, background 170ms ease, transform 170ms ease;
+}
+
+.folder-page-dot.is-current {
+  transform: scale(1.02);
+}
+
+.folder-page-dot.is-current::before {
+  width: 17px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.folder-page-dot:hover::before,
+.folder-page-dot:focus-visible::before {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.folder-page-dot:focus-visible {
+  outline: 0;
 }
 
 .startup-error {
@@ -818,6 +916,14 @@ input {
 
 .merge-target-flight {
   z-index: 149 !important;
+}
+
+.merge-target-flight.is-merge-target::before {
+  animation: none;
+}
+
+.merge-target-flight.is-merge-target .icon-shell {
+  transition: none;
 }
 
 .context-menu-layer {

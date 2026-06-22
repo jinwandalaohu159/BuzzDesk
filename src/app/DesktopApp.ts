@@ -55,6 +55,7 @@ import type {
 } from "../types";
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
+const folderPagerHeight = 30;
 
 // Owns desktop interaction orchestration; visual rendering, layout math, state
 // mutation, and platform calls stay in their own modules.
@@ -91,6 +92,17 @@ interface DragTargetSnapshot {
   rect: DOMRect;
 }
 
+interface FolderSwipe {
+  pointerId: number;
+  startX: number;
+  startY: number;
+  currentX: number;
+  page: number;
+  pageCount: number;
+  width: number;
+  started: boolean;
+}
+
 type ContextMenuState =
   | { type: "desktop"; x: number; y: number }
   | { type: "item"; x: number; y: number; nodeId: string }
@@ -113,6 +125,8 @@ export class DesktopApp {
   private selectedId: string | null = null;
   private openFolderId: string | null = null;
   private renderedFolderId: string | null = null;
+  private hiddenOpenFolderTileId: string | null = null;
+  private openFolderPage = 0;
   private folderOpenOrigin: FolderOpenOrigin | null = null;
   private editingFolder = false;
   private folderClosing = false;
@@ -134,6 +148,7 @@ export class DesktopApp {
   private fullDesktopLoadScheduled = false;
   private fullDesktopLoadInFlight = false;
   private drag: ActiveDrag | null = null;
+  private folderSwipe: FolderSwipe | null = null;
   private suppressNextClick = false;
   private suppressStoreRender = false;
   private settingsPreviewFrame: number | null = null;
@@ -312,6 +327,7 @@ export class DesktopApp {
     }
 
     const folder = this.getOpenFolder();
+    this.syncOpenFolderTileState(folder?.id ?? null);
     this.folderLayer.classList.toggle("is-open", Boolean(folder));
     this.folderLayer.classList.remove("is-closing");
 
@@ -328,11 +344,10 @@ export class DesktopApp {
     const animate = this.renderedFolderId !== folder.id;
     this.renderedFolderId = folder.id;
     const appearance = folderAppearanceOverride ?? folder.appearance;
-    const size = panelSizeFor(
-      window.innerWidth,
-      window.innerHeight,
-      appearance
-    );
+    const size = this.folderPanelSize(folder, appearance);
+    const pageSize = Math.max(1, size.columns * size.rows);
+    const pageCount = Math.max(1, Math.ceil(folder.children.length / pageSize));
+    this.openFolderPage = clampScroll(this.openFolderPage, 0, pageCount - 1);
     this.folderLayer.replaceChildren(
       ...renderFolderLayerContent(folder, {
         editing: this.editingFolder,
@@ -343,11 +358,32 @@ export class DesktopApp {
         openingIds: this.openingIds,
         origin: this.folderOpenOrigin,
         size,
+        page: this.openFolderPage,
+        pageCount,
+        pageSize,
         animate
       })
     );
     this.bindFolderNameInput(folder);
     this.bindFolderChildRenameInput(folder);
+  }
+
+  private syncOpenFolderTileState(folderId: string | null) {
+    if (this.hiddenOpenFolderTileId && this.hiddenOpenFolderTileId !== folderId) {
+      const previous = this.grid.querySelector<HTMLElement>(
+        `[data-node-id="${CSS.escape(this.hiddenOpenFolderTileId)}"]`
+      );
+      previous?.classList.remove("is-folder-open");
+    }
+
+    this.hiddenOpenFolderTileId = folderId;
+
+    if (!folderId) {
+      return;
+    }
+
+    const current = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(folderId)}"]`);
+    current?.classList.add("is-folder-open");
   }
 
   private bindFolderNameInput(folder: FolderNode) {
@@ -611,19 +647,175 @@ export class DesktopApp {
     const childId = item?.dataset.folderChildId;
     const folderId = item?.dataset.parentFolderId;
     const child = this.findFolder(folderId ?? "")?.children.find((node) => node.id === childId);
-    if (!item || !child || !folderId || !childId) {
+    if (item && child && folderId && childId) {
+      this.previewFolderChildPress(folderId, childId, item);
+      const rect = item.getBoundingClientRect();
+      this.beginDrag({
+        source: { type: "folder", folderId, childId },
+        event,
+        element: item,
+        baseX: rect.left,
+        baseY: rect.top,
+        floating: false
+      });
       return;
     }
 
-    this.previewFolderChildPress(folderId, childId, item);
-    const rect = item.getBoundingClientRect();
-    this.beginDrag({
-      source: { type: "folder", folderId, childId },
-      event,
-      element: item,
-      baseX: rect.left,
-      baseY: rect.top,
-      floating: false
+    if (
+      !(event.target as HTMLElement).closest("button, input, [data-folder-title]") &&
+      (event.target as HTMLElement).closest(".folder-panel")
+    ) {
+      this.beginFolderSwipe(event);
+    }
+  }
+
+  private beginFolderSwipe(event: PointerEvent, origin?: { startX: number; startY: number }) {
+    const folder = this.getOpenFolder();
+    if (!folder) {
+      return;
+    }
+
+    const paging = this.folderPaging(folder);
+    if (paging.pageCount <= 1) {
+      return;
+    }
+
+    const viewport = this.folderLayer.querySelector<HTMLElement>(".folder-items-viewport");
+    const width = viewport?.getBoundingClientRect().width ?? window.innerWidth;
+    this.folderSwipe = {
+      pointerId: event.pointerId,
+      startX: origin?.startX ?? event.clientX,
+      startY: origin?.startY ?? event.clientY,
+      currentX: event.clientX,
+      page: paging.page,
+      pageCount: paging.pageCount,
+      width: Math.max(1, width),
+      started: false
+    };
+
+    try {
+      this.folderLayer.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Window listeners below keep the swipe alive if capture is unavailable.
+    }
+
+    window.addEventListener("pointermove", this.onFolderSwipeMove);
+    window.addEventListener("pointerup", this.onFolderSwipeEnd, { once: true });
+    window.addEventListener("pointercancel", this.onFolderSwipeCancel, { once: true });
+  }
+
+  private promoteFolderDragToPageSwipe(drag: ActiveDrag, event: PointerEvent) {
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerCancel);
+    window.removeEventListener("blur", this.onWindowBlur);
+
+    if (drag.frame !== null) {
+      cancelAnimationFrame(drag.frame);
+    }
+
+    drag.element.classList.remove("is-selected");
+    this.selectedFolderChild = null;
+    this.drag = null;
+    this.beginFolderSwipe(event, { startX: drag.startX, startY: drag.startY });
+    this.onFolderSwipeMove(event);
+  }
+
+  private readonly onFolderSwipeMove = (event: PointerEvent) => {
+    const swipe = this.folderSwipe;
+    if (!swipe || event.pointerId !== swipe.pointerId) {
+      return;
+    }
+
+    swipe.currentX = event.clientX;
+    const dx = swipe.currentX - swipe.startX;
+    const dy = event.clientY - swipe.startY;
+    if (!swipe.started) {
+      if (Math.abs(dx) < 8 && Math.abs(dy) < 8) {
+        return;
+      }
+
+      if (Math.abs(dy) > Math.abs(dx) * 1.25) {
+        this.cancelFolderSwipe();
+        return;
+      }
+
+      swipe.started = true;
+    }
+
+    event.preventDefault();
+    const blocked =
+      (dx > 0 && swipe.page <= 0) || (dx < 0 && swipe.page >= swipe.pageCount - 1);
+    const resisted = blocked ? dx * 0.28 : dx;
+    const translate = clampScroll(resisted, -swipe.width * 0.36, swipe.width * 0.36);
+    const panel = this.folderLayer.querySelector<HTMLElement>(".folder-panel");
+    panel?.classList.add("is-page-dragging");
+    panel?.style.setProperty("--folder-page-drag-x", `${translate}px`);
+  };
+
+  private readonly onFolderSwipeEnd = (event: PointerEvent) => {
+    const swipe = this.folderSwipe;
+    if (!swipe || event.pointerId !== swipe.pointerId) {
+      return;
+    }
+
+    this.removeFolderSwipeListeners();
+    this.folderSwipe = null;
+
+    const dx = swipe.currentX - swipe.startX;
+    const threshold = Math.min(120, Math.max(54, swipe.width * 0.18));
+    if (swipe.started && dx <= -threshold) {
+      this.setOpenFolderPage(swipe.page + 1, { dragX: dx, width: swipe.width });
+      return;
+    }
+
+    if (swipe.started && dx >= threshold) {
+      this.setOpenFolderPage(swipe.page - 1, { dragX: dx, width: swipe.width });
+      return;
+    }
+
+    this.settleFolderPageDragStyle();
+  };
+
+  private readonly onFolderSwipeCancel = () => {
+    this.cancelFolderSwipe();
+  };
+
+  private cancelFolderSwipe() {
+    this.removeFolderSwipeListeners();
+    this.folderSwipe = null;
+    this.clearFolderPageDragStyle();
+  }
+
+  private removeFolderSwipeListeners() {
+    window.removeEventListener("pointermove", this.onFolderSwipeMove);
+    window.removeEventListener("pointerup", this.onFolderSwipeEnd);
+    window.removeEventListener("pointercancel", this.onFolderSwipeCancel);
+  }
+
+  private clearFolderPageDragStyle() {
+    const panel = this.folderLayer.querySelector<HTMLElement>(".folder-panel");
+    panel?.classList.remove("is-page-dragging");
+    panel?.style.removeProperty("--folder-page-drag-x");
+  }
+
+  private settleFolderPageDragStyle() {
+    const panel = this.folderLayer.querySelector<HTMLElement>(".folder-panel");
+    if (!panel) {
+      return;
+    }
+
+    if (!panel.style.getPropertyValue("--folder-page-drag-x")) {
+      panel.classList.remove("is-page-dragging");
+      return;
+    }
+
+    requestAnimationFrame(() => {
+      panel.classList.remove("is-page-dragging");
+      panel.style.setProperty("--folder-page-drag-x", "0px");
+      window.setTimeout(() => {
+        panel.style.removeProperty("--folder-page-drag-x");
+      }, 320);
     });
   }
 
@@ -676,6 +868,8 @@ export class DesktopApp {
       startY: options.event.clientY,
       currentX: options.event.clientX,
       currentY: options.event.clientY,
+      startScrollLeft: this.root.scrollLeft,
+      startScrollTop: this.root.scrollTop,
       baseX: options.baseX,
       baseY: options.baseY,
       width: rect.width,
@@ -707,9 +901,20 @@ export class DesktopApp {
     drag.currentY = event.clientY;
 
     if (!drag.started) {
+      const dx = drag.currentX - drag.startX;
+      const dy = drag.currentY - drag.startY;
       const moved = Math.hypot(drag.currentX - drag.startX, drag.currentY - drag.startY);
       if (moved < 4) {
         return;
+      }
+
+      if (drag.source.type === "folder" && Math.abs(dx) >= 10 && Math.abs(dx) > Math.abs(dy) * 1.25) {
+        const sourceFolder = this.findFolder(drag.source.folderId);
+        if (sourceFolder && this.folderPaging(sourceFolder).pageCount > 1) {
+          event.preventDefault();
+          this.promoteFolderDragToPageSwipe(drag, event);
+          return;
+        }
       }
 
       event.preventDefault();
@@ -848,6 +1053,11 @@ export class DesktopApp {
 
       const active = this.drag;
       active.frame = null;
+      const didAutoScroll = this.autoScrollDrag(active);
+      if (didAutoScroll) {
+        active.targetSnapshots = this.captureMergeTargets(active);
+      }
+
       this.updateMergeTarget(active.currentX, active.currentY);
       const magneticTarget = active.targetId && active.targetRect ? active.targetRect : null;
       const transform = dragFrameTransform({
@@ -857,6 +1067,8 @@ export class DesktopApp {
         startY: active.startY,
         baseX: active.baseX,
         baseY: active.baseY,
+        sourceLayoutOffsetX: active.floating ? 0 : this.root.scrollLeft - active.startScrollLeft,
+        sourceLayoutOffsetY: active.floating ? 0 : this.root.scrollTop - active.startScrollTop,
         width: active.width,
         height: active.height,
         targetRect: magneticTarget,
@@ -869,7 +1081,31 @@ export class DesktopApp {
         active.targetElement.style.setProperty("--merge-pull-y", `${transform.targetPullY}px`);
       }
       active.element.style.transform = toTransformStyle(transform);
+
+      if (didAutoScroll && this.drag === active) {
+        this.scheduleDragFrame();
+      }
     });
+  }
+
+  private autoScrollDrag(drag: ActiveDrag) {
+    const delta = dragAutoScrollDelta(
+      drag.currentX,
+      drag.currentY,
+      window.innerWidth,
+      window.innerHeight
+    );
+
+    if (delta.x === 0 && delta.y === 0) {
+      return false;
+    }
+
+    const beforeLeft = this.root.scrollLeft;
+    const beforeTop = this.root.scrollTop;
+    this.root.scrollLeft = clampScroll(beforeLeft + delta.x, 0, this.root.scrollWidth - this.root.clientWidth);
+    this.root.scrollTop = clampScroll(beforeTop + delta.y, 0, this.root.scrollHeight - this.root.clientHeight);
+
+    return this.root.scrollLeft !== beforeLeft || this.root.scrollTop !== beforeTop;
   }
 
   private promoteFolderDrag(drag: ActiveDrag) {
@@ -1041,9 +1277,7 @@ export class DesktopApp {
       this.clearMergeTargetElement(targetElement);
     }
 
-    if (targetElement) {
-      await Promise.race([mergeAnimation, waitForMergeLayoutCommit()]);
-    }
+    await mergeAnimation;
 
     this.suppressStoreRender = true;
     try {
@@ -1088,7 +1322,6 @@ export class DesktopApp {
       this.renderWithFlip();
     }
 
-    await mergeAnimation;
   }
 
   private playFolderBirthById(folderId: string, originRect: DOMRect) {
@@ -1139,6 +1372,17 @@ export class DesktopApp {
 
   private onFolderLayerClick(event: MouseEvent) {
     if (this.consumeSuppressedClick()) {
+      return;
+    }
+
+    const pageButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-folder-page-index]");
+    if (pageButton) {
+      event.preventDefault();
+      event.stopPropagation();
+      const page = Number(pageButton.dataset.folderPageIndex);
+      if (Number.isFinite(page)) {
+        this.setOpenFolderPage(page);
+      }
       return;
     }
 
@@ -1535,6 +1779,93 @@ export class DesktopApp {
     }
 
     return this.findFolder(this.openFolderId);
+  }
+
+  private folderPaging(folder: FolderNode) {
+    const size = this.folderPanelSize(folder);
+    const pageSize = Math.max(1, size.columns * size.rows);
+    const pageCount = Math.max(1, Math.ceil(folder.children.length / pageSize));
+    const page = clampScroll(this.openFolderPage, 0, pageCount - 1);
+
+    return { page, pageCount, pageSize, size };
+  }
+
+  private folderPanelSize(folder: FolderNode, appearance: FolderAppearanceSettings = folder.appearance) {
+    const firstPass = panelSizeFor(window.innerWidth, window.innerHeight, appearance);
+    const firstPageSize = Math.max(1, firstPass.columns * firstPass.rows);
+    if (folder.children.length <= firstPageSize) {
+      return firstPass;
+    }
+
+    return panelSizeFor(window.innerWidth, window.innerHeight, appearance, folderPagerHeight);
+  }
+
+  private setOpenFolderPage(page: number, transitionStart?: { dragX: number; width: number }) {
+    const folder = this.getOpenFolder();
+    if (!folder) {
+      return;
+    }
+
+    const paging = this.folderPaging(folder);
+    const nextPage = clampScroll(Math.round(page), 0, paging.pageCount - 1);
+    const currentPage = paging.page;
+    if (nextPage === currentPage) {
+      this.settleFolderPageDragStyle();
+      return;
+    }
+
+    this.openFolderPage = nextPage;
+    this.selectedFolderChild = null;
+    this.renamingFolderChild = null;
+    this.folderLayer.querySelectorAll<HTMLElement>(".folder-item.is-selected").forEach((item) => {
+      item.classList.remove("is-selected");
+    });
+
+    const panel = this.folderLayer.querySelector<HTMLElement>(".folder-panel");
+    if (transitionStart && panel) {
+      const continuityX = transitionStart.dragX + (nextPage - currentPage) * transitionStart.width;
+      panel.style.setProperty("--folder-page-drag-x", `${continuityX}px`);
+      this.updateFolderPageView(nextPage);
+      requestAnimationFrame(() => {
+        panel.classList.remove("is-page-dragging");
+        panel.style.setProperty("--folder-page-drag-x", "0px");
+        window.setTimeout(() => {
+          panel.style.removeProperty("--folder-page-drag-x");
+        }, 320);
+      });
+      return;
+    }
+
+    this.clearFolderPageDragStyle();
+    this.updateFolderPageView(nextPage);
+  }
+
+  private updateFolderPageView(page: number) {
+    const pages = this.folderLayer.querySelector<HTMLElement>(".folder-pages");
+    pages?.style.setProperty("--folder-page-offset", `${page * -100}%`);
+
+    this.folderLayer.querySelectorAll<HTMLElement>(".folder-items").forEach((items) => {
+      const isCurrent = Number(items.dataset.folderPage) === page;
+      items.classList.toggle("is-current-page", isCurrent);
+      if (isCurrent) {
+        items.removeAttribute("aria-hidden");
+      } else {
+        items.setAttribute("aria-hidden", "true");
+      }
+      items.querySelectorAll<HTMLElement>("[data-folder-child-id]").forEach((item) => {
+        item.tabIndex = isCurrent ? 0 : -1;
+      });
+    });
+
+    this.folderLayer.querySelectorAll<HTMLElement>("[data-folder-page-index]").forEach((dot) => {
+      const isCurrent = Number(dot.dataset.folderPageIndex) === page;
+      dot.classList.toggle("is-current", isCurrent);
+      if (isCurrent) {
+        dot.setAttribute("aria-current", "page");
+      } else {
+        dot.removeAttribute("aria-current");
+      }
+    });
   }
 
   private async closeFolder() {
@@ -2270,16 +2601,24 @@ export class DesktopApp {
       return false;
     }
 
+    const paging = this.folderPaging(folder);
+    if (paging.pageCount > 1 && (event.key === "ArrowLeft" || event.key === "ArrowRight")) {
+      event.preventDefault();
+      this.selectedFolderChild = null;
+      this.renamingFolderChild = null;
+      this.closeContextMenu();
+      this.setOpenFolderPage(paging.page + (event.key === "ArrowRight" ? 1 : -1));
+      return true;
+    }
+
     const focused = (event.target as HTMLElement).closest<HTMLElement>("[data-folder-child-id]");
     const selectedChildId = focused?.dataset.folderChildId ?? this.selectedFolderChild?.childId ?? null;
-    const currentIndex = folder.children.findIndex((child) => child.id === selectedChildId);
-    const columns = panelSizeFor(
-      window.innerWidth,
-      window.innerHeight,
-      folder.appearance
-    ).columns;
-    const nextIndex = nextGridIndex(event.key, currentIndex, folder.children.length, columns);
-    const next = folder.children[nextIndex];
+    const pageStart = paging.page * paging.pageSize;
+    const visibleChildren = folder.children.slice(pageStart, pageStart + paging.pageSize);
+    const currentIndex = visibleChildren.findIndex((child) => child.id === selectedChildId);
+    const columns = paging.size.columns;
+    const nextIndex = nextGridIndex(event.key, currentIndex, visibleChildren.length, columns);
+    const next = visibleChildren[nextIndex];
     if (!next) {
       return false;
     }
@@ -2340,6 +2679,7 @@ export class DesktopApp {
 
     this.folderOpenOrigin = this.currentFolderOpenOrigin(node);
     this.openFolderId = node.id;
+    this.openFolderPage = 0;
     this.editingFolder = false;
     this.renamingFolderChild = null;
     this.selectedFolderChild = null;
@@ -2354,6 +2694,7 @@ export class DesktopApp {
     const rect = cover?.getBoundingClientRect() ?? element.getBoundingClientRect();
     this.folderOpenOrigin = this.folderOpenOriginForRect(node, rect);
     this.openFolderId = node.id;
+    this.openFolderPage = 0;
     this.editingFolder = false;
     this.renamingFolderChild = null;
     this.selectedFolderChild = null;
@@ -2398,7 +2739,7 @@ export class DesktopApp {
     node: FolderNode,
     rect: Pick<DOMRect, "left" | "top" | "width" | "height">
   ): FolderOpenOrigin {
-    const size = panelSizeFor(window.innerWidth, window.innerHeight, node.appearance);
+    const size = this.folderPanelSize(node);
     const scale = Math.max(
       0.08,
       Math.min(0.22, Math.max(rect.width / Math.max(1, size.width), rect.height / Math.max(1, size.height)))
@@ -2540,6 +2881,8 @@ export class DesktopApp {
     this.openFolderId = null;
     this.renderedFolderId = null;
     this.folderOpenOrigin = null;
+    this.openFolderPage = 0;
+    this.cancelFolderSwipe();
     this.editingFolder = false;
     this.renamingFolderChild = null;
     this.selectedFolderChild = null;
@@ -2587,12 +2930,6 @@ function waitForPaint() {
   });
 }
 
-function waitForMergeLayoutCommit() {
-  return new Promise<void>((resolve) => {
-    window.setTimeout(resolve, 144);
-  });
-}
-
 function scheduleIdleTask(callback: () => void, timeout: number) {
   const idleWindow = window as Window & {
     requestIdleCallback?: (callback: () => void, options?: { timeout?: number }) => number;
@@ -2626,6 +2963,10 @@ function isNavigationKey(key: string) {
 
 function isDesktopSettingKey(key: string): key is keyof DesktopSettings {
   return key === "appIconSize" || key === "folderCoverSmallPx" || key === "folderCoverMediumPx" || key === "folderCoverLargePx";
+}
+
+function clampScroll(value: number, min: number, max: number) {
+  return Math.min(Math.max(min, max), Math.max(min, value));
 }
 
 function nextGridIndex(key: string, currentIndex: number, itemCount: number, columns: number) {

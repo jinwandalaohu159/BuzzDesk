@@ -176,6 +176,8 @@ fn attach_desktop_layer_window(app: AppHandle) -> Result<bool, String> {
 }
 
 fn attach_desktop_layer_window_inner(window: &tauri::WebviewWindow) -> Result<bool, String> {
+    let _ = window.set_resizable(false);
+
     #[cfg(windows)]
     let attached_to_desktop = match window.hwnd() {
         Ok(hwnd) => match platform::attach_window_to_desktop(hwnd, false) {
@@ -203,6 +205,8 @@ fn attach_desktop_layer_window_inner(window: &tauri::WebviewWindow) -> Result<bo
 }
 
 fn show_desktop_layer_window_inner(window: &tauri::WebviewWindow) -> Result<bool, String> {
+    let _ = window.set_resizable(false);
+
     #[cfg(windows)]
     let attached_to_desktop = match window.hwnd() {
         Ok(hwnd) => match platform::attach_window_to_desktop(hwnd, true) {
@@ -493,6 +497,7 @@ mod platform {
     use base64::{engine::general_purpose, Engine as _};
     use std::cell::RefCell;
     use std::collections::{BTreeMap, HashMap};
+    use std::env;
     use std::ffi::{c_void, OsStr};
     use std::fs;
     use std::os::windows::ffi::OsStrExt;
@@ -541,12 +546,12 @@ mod platform {
         CreateFileW, GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
         FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL,
         FILE_ATTRIBUTE_SYSTEM, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS,
-        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
-        OPEN_EXISTING, WIN32_FIND_DATAW,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE, OPEN_EXISTING,
+        WIN32_FIND_DATAW,
     };
     use windows::Win32::System::Com::{
-        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
-        COINIT_APARTMENTTHREADED, IPersistFile, STGM_READ,
+        CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, IPersistFile,
+        CLSCTX_INPROC_SERVER, COINIT_APARTMENTTHREADED, STGM_READ,
     };
     use windows::Win32::System::DataExchange::{
         CloseClipboard, EmptyClipboard, GetClipboardData, IsClipboardFormatAvailable,
@@ -559,23 +564,24 @@ mod platform {
         Common::{ITEMIDLIST, STRRET},
         DragQueryFileW, FOLDERID_Desktop, FOLDERID_PublicDesktop, IContextMenu, IContextMenu2,
         IContextMenu3, ILFree, IShellFolder, IShellLinkW, SHBindToParent, SHFileOperationW,
-        SHGetDesktopFolder, SHGetFileInfoW, SHGetImageList, SHGetKnownFolderPath, SHGetPathFromIDListW,
-        SHParseDisplayName, ShellExecuteExW, ShellExecuteW, StrRetToBufW, CMF_CANRENAME,
-        CMF_NORMAL, CMINVOKECOMMANDINFO, DROPFILES, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FO_DELETE,
-        GCS_VERBW, HDROP, KF_FLAG_DEFAULT, SEE_MASK_IDLIST, SEE_MASK_INVOKEIDLIST, SHCONTF_FOLDERS,
-        SHCONTF_NONFOLDERS, SHELLEXECUTEINFOW, SHFILEINFOW, SHFILEOPSTRUCTW,
-        SHGDN_FORPARSING, SHGDN_INFOLDER, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_PIDL,
-        SHGFI_SYSICONINDEX, SHIL_EXTRALARGE, SHIL_JUMBO, SLGP_UNCPRIORITY, ShellLink,
+        SHGetDesktopFolder, SHGetFileInfoW, SHGetImageList, SHGetKnownFolderPath,
+        SHGetPathFromIDListW, SHParseDisplayName, ShellExecuteExW, ShellExecuteW, ShellLink,
+        StrRetToBufW, CMF_CANRENAME, CMF_NORMAL, CMINVOKECOMMANDINFO, DROPFILES, FOF_ALLOWUNDO,
+        FOF_NOCONFIRMATION, FO_DELETE, GCS_VERBW, HDROP, KF_FLAG_DEFAULT, SEE_MASK_IDLIST,
+        SEE_MASK_INVOKEIDLIST, SHCONTF_FOLDERS, SHCONTF_NONFOLDERS, SHELLEXECUTEINFOW, SHFILEINFOW,
+        SHFILEOPSTRUCTW, SHGDN_FORPARSING, SHGDN_INFOLDER, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_PIDL,
+        SHGFI_SYSICONINDEX, SHIL_EXTRALARGE, SHIL_JUMBO, SLGP_UNCPRIORITY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, CreatePopupMenu, DefWindowProcW, DestroyIcon, DestroyMenu, EnumWindows,
-        FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetIconInfo, GetSystemMetrics,
-        GetWindowLongW, PrivateExtractIconsW, SendMessageTimeoutW, SetForegroundWindow, SetParent,
-        SetWindowLongPtrW, SetWindowLongW, SetWindowPos, ShowWindow, TrackPopupMenuEx,
-        GWLP_WNDPROC, GWL_STYLE, HICON, ICONINFO, SMTO_NORMAL, SM_CXVIRTUALSCREEN,
-        SM_CYVIRTUALSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNORMAL,
-        TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP,
-        WM_MEASUREITEM, WM_MENUCHAR, WNDPROC, WS_CHILD, WS_POPUP, WS_VISIBLE,
+        FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos, GetIconInfo,
+        GetSystemMetrics, GetWindowLongW, PrivateExtractIconsW, SendMessageTimeoutW,
+        SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowLongW, SetWindowPos,
+        ShowWindow, TrackPopupMenuEx, GWLP_WNDPROC, GWL_STYLE, HICON, ICONINFO, SMTO_NORMAL,
+        SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW,
+        SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
+        WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WNDPROC, WS_CHILD, WS_MAXIMIZEBOX, WS_POPUP,
+        WS_THICKFRAME, WS_VISIBLE,
     };
 
     pub fn scan_desktop_items() -> Result<Vec<DesktopItem>, String> {
@@ -773,13 +779,22 @@ mod platform {
             .map(|path| item_kind(Path::new(path)))
             .unwrap_or_else(|| "system".to_string());
 
+        let icon_data_url = if include_icons {
+            icon_for_pidl(pidl).or_else(|| {
+                path.as_ref()
+                    .and_then(|path| icon_for_path(Path::new(path)))
+            })
+        } else {
+            None
+        };
+
         Some(DesktopItem {
             id,
             name,
             kind,
             path,
             launch_id,
-            icon_data_url: include_icons.then(|| icon_for_pidl(pidl)).flatten(),
+            icon_data_url,
             is_virtual: false,
         })
     }
@@ -1147,7 +1162,7 @@ mod platform {
         }
 
         let _ = SetForegroundWindow(owner);
-        let popup_point = client_point_to_screen(owner, x, y);
+        let popup_point = cursor_point_or_client_point_to_screen(owner, x, y);
         let forwarder_guard = install_menu_message_forwarder(owner, &context_menu);
         let command = TrackPopupMenuEx(
             menu,
@@ -1197,7 +1212,12 @@ mod platform {
         })
     }
 
-    unsafe fn client_point_to_screen(owner: HWND, x: i32, y: i32) -> POINT {
+    unsafe fn cursor_point_or_client_point_to_screen(owner: HWND, x: i32, y: i32) -> POINT {
+        let mut cursor = POINT { x: 0, y: 0 };
+        if GetCursorPos(&mut cursor).is_ok() {
+            return cursor;
+        }
+
         let mut point = POINT { x, y };
         if ClientToScreen(owner, &mut point).as_bool() {
             point
@@ -1341,7 +1361,9 @@ mod platform {
         unsafe {
             let style = GetWindowLongW(hwnd, GWL_STYLE) as u32;
             let visible_style = if show { WS_VISIBLE.0 } else { 0 };
-            let desktop_style = (style & !WS_POPUP.0) | WS_CHILD.0 | visible_style;
+            let desktop_style = (style & !WS_POPUP.0 & !WS_THICKFRAME.0 & !WS_MAXIMIZEBOX.0)
+                | WS_CHILD.0
+                | visible_style;
             let _ = SetWindowLongW(hwnd, GWL_STYLE, desktop_style as i32);
 
             SetParent(hwnd, Some(parent)).map_err(|error| format!("SetParent failed: {error}"))?;
@@ -1879,11 +1901,11 @@ mod platform {
     fn icon_for_path(path: &Path) -> Option<String> {
         let wide = to_wide(&path.to_string_lossy());
         if is_shortcut_path(path) {
-            if let Some(icon) = icon_for_wide_path(&wide, FILE_ATTRIBUTE_NORMAL) {
+            if let Some(icon) = icon_for_shortcut(path) {
                 return Some(icon);
             }
 
-            if let Some(icon) = icon_for_shortcut(path) {
+            if let Some(icon) = icon_for_wide_path(&wide, FILE_ATTRIBUTE_NORMAL) {
                 return Some(icon);
             }
         }
@@ -1921,7 +1943,9 @@ mod platform {
             CoCreateInstance(&ShellLink, None, CLSCTX_INPROC_SERVER).ok()?;
         let persist_file: IPersistFile = shell_link.cast().ok()?;
         let shortcut_path = to_wide(&path.to_string_lossy());
-        persist_file.Load(PCWSTR(shortcut_path.as_ptr()), STGM_READ).ok()?;
+        persist_file
+            .Load(PCWSTR(shortcut_path.as_ptr()), STGM_READ)
+            .ok()?;
 
         let mut icon_path_buffer = [0u16; 520];
         let mut icon_index = 0i32;
@@ -1929,14 +1953,17 @@ mod platform {
             .GetIconLocation(&mut icon_path_buffer, &mut icon_index)
             .is_ok()
         {
-            let icon_path = wide_buffer_to_string(&icon_path_buffer);
+            let icon_path =
+                resolve_shortcut_icon_path(path, &wide_buffer_to_string(&icon_path_buffer));
             if !icon_path.is_empty() {
                 if let Some(icon) = icon_for_explicit_icon_location(&icon_path, icon_index) {
                     return Some(icon);
                 }
 
-                if let Some(icon) = icon_for_shell_path(&icon_path) {
-                    return Some(icon);
+                if !Path::new(&icon_path).is_dir() {
+                    if let Some(icon) = icon_for_shell_path(&icon_path) {
+                        return Some(icon);
+                    }
                 }
             }
         }
@@ -1952,12 +1979,68 @@ mod platform {
             .is_ok()
         {
             let target_path = wide_buffer_to_string(&target_path_buffer);
-            if !target_path.is_empty() {
-                return icon_for_shell_path(&target_path);
+            if !target_path.is_empty() && !Path::new(&target_path).is_dir() {
+                if let Some(icon) = icon_for_shell_path(&target_path) {
+                    return Some(icon);
+                }
             }
         }
 
         None
+    }
+
+    fn resolve_shortcut_icon_path(shortcut_path: &Path, icon_path: &str) -> String {
+        let expanded = expand_environment_variables(icon_path);
+        let path = PathBuf::from(&expanded);
+        if path.is_absolute() {
+            return expanded;
+        }
+
+        shortcut_path
+            .parent()
+            .map(|parent| parent.join(path).to_string_lossy().to_string())
+            .unwrap_or(expanded)
+    }
+
+    fn expand_environment_variables(value: &str) -> String {
+        let chars: Vec<char> = value.chars().collect();
+        let mut expanded = String::with_capacity(value.len());
+        let mut index = 0;
+
+        while index < chars.len() {
+            if chars[index] != '%' {
+                expanded.push(chars[index]);
+                index += 1;
+                continue;
+            }
+
+            let Some(end_offset) = chars[index + 1..]
+                .iter()
+                .position(|character| *character == '%')
+            else {
+                expanded.push(chars[index]);
+                index += 1;
+                continue;
+            };
+            let end = index + 1 + end_offset;
+            let key: String = chars[index + 1..end].iter().collect();
+
+            if key.is_empty() {
+                expanded.push('%');
+                index += 1;
+                continue;
+            }
+
+            if let Some(value) = env::var_os(&key) {
+                expanded.push_str(&value.to_string_lossy());
+            } else {
+                expanded.extend(chars[index..=end].iter());
+            }
+
+            index = end + 1;
+        }
+
+        expanded
     }
 
     unsafe fn icon_for_explicit_icon_location(path: &str, icon_index: i32) -> Option<String> {
@@ -2250,10 +2333,12 @@ mod platform {
             rgba.extend_from_slice(&[pixel[2], pixel[1], pixel[0], pixel[3]]);
         }
 
-        let (image_width, image_height, image_pixels) = trim_transparent_padding(width, height, rgba)?;
+        let (image_width, image_height, image_pixels) =
+            trim_transparent_padding(width, height, rgba)?;
         let mut bytes = Vec::new();
         {
-            let mut encoder = png::Encoder::new(&mut bytes, image_width as u32, image_height as u32);
+            let mut encoder =
+                png::Encoder::new(&mut bytes, image_width as u32, image_height as u32);
             encoder.set_color(png::ColorType::Rgba);
             encoder.set_depth(png::BitDepth::Eight);
             let mut writer = encoder.write_header().ok()?;
@@ -2263,7 +2348,11 @@ mod platform {
         Some(bytes)
     }
 
-    fn trim_transparent_padding(width: i32, height: i32, rgba: Vec<u8>) -> Option<(i32, i32, Vec<u8>)> {
+    fn trim_transparent_padding(
+        width: i32,
+        height: i32,
+        rgba: Vec<u8>,
+    ) -> Option<(i32, i32, Vec<u8>)> {
         if width <= 0 || height <= 0 {
             return None;
         }
@@ -2302,7 +2391,8 @@ mod platform {
 
         let trim_width = max_x - min_x + 1;
         let trim_height = max_y - min_y + 1;
-        let should_trim = trim_width * 100 < width_usize * 92 || trim_height * 100 < height_usize * 92;
+        let should_trim =
+            trim_width * 100 < width_usize * 92 || trim_height * 100 < height_usize * 92;
         if !should_trim {
             return Some((width, height, rgba));
         }

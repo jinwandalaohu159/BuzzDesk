@@ -1,6 +1,6 @@
 import type { AppNode } from "../types";
 
-const iconCacheKey = "desktop-layer-icon-cache-v2";
+const iconCacheKey = "desktop-layer-icon-cache-v4";
 const maxCachedIcons = 160;
 const maxIconDataUrlLength = 220_000;
 
@@ -63,7 +63,7 @@ export function rememberIconImages(items: AppNode[]) {
 }
 
 function cacheKeyForItem(item: AppNode) {
-  return `${item.id}\n${item.launchId}`;
+  return [item.id, item.kind, item.name, item.path ?? "", item.launchId].join("\n");
 }
 
 function trimIconCache(cache: IconCachePayload) {

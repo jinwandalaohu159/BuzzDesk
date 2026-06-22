@@ -30,6 +30,9 @@ interface FolderLayerRenderOptions {
   openingIds: ReadonlySet<string>;
   origin: FolderOpenOrigin | null;
   size: FolderPanelSize;
+  page: number;
+  pageCount: number;
+  pageSize: number;
   animate: boolean;
 }
 
@@ -123,6 +126,9 @@ export function renderFolderLayerContent(folder: FolderNode, options: FolderLaye
 
   const panel = document.createElement("section");
   panel.className = "folder-panel";
+  if (options.pageCount > 1) {
+    panel.classList.add("has-pages");
+  }
   if (!options.animate) {
     panel.classList.add("is-static");
   }
@@ -149,41 +155,87 @@ export function renderFolderLayerContent(folder: FolderNode, options: FolderLaye
     title.append(name);
   }
 
-  const items = document.createElement("div");
-  items.className = "folder-items";
-  items.style.setProperty("--folder-panel-item-width", `${options.size.itemWidth}px`);
-  items.style.setProperty("--folder-panel-item-height", `${options.size.itemHeight}px`);
-  items.style.setProperty("--folder-panel-icon-size", `${Math.min(64, Math.max(48, options.size.itemWidth - 12))}px`);
-  items.style.gridTemplateColumns = `repeat(${options.size.columns}, ${options.size.itemWidth}px)`;
-  items.style.gridTemplateRows = `repeat(${options.size.rows}, ${options.size.itemHeight}px)`;
-  items.style.gridAutoRows = `${options.size.itemHeight}px`;
+  const itemsViewport = document.createElement("div");
+  itemsViewport.className = "folder-items-viewport";
 
-  folder.children.forEach((child) => {
-    const item = document.createElement("div");
-    item.className = "folder-item";
-    if (options.selectedChildId === child.id) {
-      item.classList.add("is-selected");
+  const pages = document.createElement("div");
+  pages.className = "folder-pages";
+  pages.style.setProperty("--folder-page-offset", `${options.page * -100}%`);
+
+  for (let pageIndex = 0; pageIndex < options.pageCount; pageIndex += 1) {
+    const items = document.createElement("div");
+    items.className = "folder-items";
+    if (pageIndex === options.page) {
+      items.classList.add("is-current-page");
+    } else {
+      items.setAttribute("aria-hidden", "true");
     }
-    if (options.openingIds.has(child.id)) {
-      item.classList.add("is-opening");
-    }
-    item.dataset.folderChildId = child.id;
-    item.dataset.parentFolderId = folder.id;
-    item.setAttribute("role", "button");
-    item.setAttribute("tabindex", "0");
-    item.setAttribute("aria-label", child.name);
-    item.append(renderIcon(child));
+    items.dataset.folderPage = String(pageIndex);
+    items.style.setProperty("--folder-panel-item-width", `${options.size.itemWidth}px`);
+    items.style.setProperty("--folder-panel-item-height", `${options.size.itemHeight}px`);
+    items.style.setProperty("--folder-panel-icon-size", `${Math.min(64, Math.max(48, options.size.itemWidth - 12))}px`);
+    items.style.gridTemplateColumns = `repeat(${options.size.columns}, ${options.size.itemWidth}px)`;
+    items.style.gridTemplateRows = `repeat(${options.size.rows}, ${options.size.itemHeight}px)`;
+    items.style.gridAutoRows = `${options.size.itemHeight}px`;
 
-    const label =
-      options.renamingChildId === child.id
-        ? renderFolderChildRenameInput(folder.id, child.id, child.name)
-        : renderTileName(child.name);
-    item.append(label);
-    items.append(item);
-  });
+    const pageStart = pageIndex * options.pageSize;
+    const pageChildren = folder.children.slice(pageStart, pageStart + options.pageSize);
+    pageChildren.forEach((child) => {
+      const item = document.createElement("div");
+      item.className = "folder-item";
+      if (options.selectedChildId === child.id) {
+        item.classList.add("is-selected");
+      }
+      if (options.openingIds.has(child.id)) {
+        item.classList.add("is-opening");
+      }
+      item.dataset.folderChildId = child.id;
+      item.dataset.parentFolderId = folder.id;
+      item.setAttribute("role", "button");
+      item.setAttribute("tabindex", pageIndex === options.page ? "0" : "-1");
+      item.setAttribute("aria-label", child.name);
+      item.append(renderIcon(child));
 
-  panel.append(title, items);
+      const label =
+        options.renamingChildId === child.id
+          ? renderFolderChildRenameInput(folder.id, child.id, child.name)
+          : renderTileName(child.name);
+      item.append(label);
+      items.append(item);
+    });
+
+    pages.append(items);
+  }
+
+  itemsViewport.append(pages);
+  panel.append(title, itemsViewport);
+  if (options.pageCount > 1) {
+    panel.append(renderFolderPager(options.page, options.pageCount));
+  }
   return [backdrop, panel];
+}
+
+function renderFolderPager(page: number, pageCount: number) {
+  const pager = document.createElement("div");
+  pager.className = "folder-pager";
+
+  const dots = document.createElement("div");
+  dots.className = "folder-page-dots";
+  for (let index = 0; index < pageCount; index += 1) {
+    const dot = document.createElement("button");
+    dot.type = "button";
+    dot.className = "folder-page-dot";
+    dot.dataset.folderPageIndex = String(index);
+    dot.setAttribute("aria-label", `Page ${index + 1}`);
+    if (index === page) {
+      dot.classList.add("is-current");
+      dot.setAttribute("aria-current", "page");
+    }
+    dots.append(dot);
+  }
+
+  pager.append(dots);
+  return pager;
 }
 
 export function renderFolderCover(folder: FolderNode, settings: DesktopSettings) {
