@@ -30,17 +30,25 @@ export function layoutDesktopFlow(
   viewportWidth: number,
   base: FlowBaseMetrics,
   tileForNode: (node: DesktopNode) => FlowTileMetrics,
-  _isolateNode: (node: DesktopNode) => boolean
+  _isolateNode: (node: DesktopNode) => boolean,
+  viewportOffsetX = 0,
+  viewportOffsetY = 0
 ): FlowLayoutResult {
+  const horizontalPadding = symmetricHorizontalPadding(viewportWidth, base);
+  const layoutBase = {
+    ...base,
+    paddingX: viewportOffsetX + horizontalPadding,
+    paddingY: viewportOffsetY + base.paddingY
+  };
   const slots = new Map<string, LayoutSlot>();
-  const usableRight = Math.max(base.paddingX + base.width, viewportWidth - base.paddingX);
+  const usableRight = viewportOffsetX + Math.max(horizontalPadding + base.width, viewportWidth - horizontalPadding);
   const placed: PackedRect[] = [];
-  let right = base.paddingX;
-  let bottom = base.paddingY;
+  let right = layoutBase.paddingX;
+  let bottom = layoutBase.paddingY;
 
   nodes.forEach((node) => {
     const tile = tileForNode(node);
-    const position = firstAvailableRect(placed, tile, base, usableRight);
+    const position = firstAvailableRect(placed, tile, layoutBase, usableRight);
     const x = position.x;
     const y = position.y;
 
@@ -59,8 +67,8 @@ export function layoutDesktopFlow(
 
   return {
     slots,
-    contentWidth: right + base.paddingX,
-    contentHeight: bottom + base.paddingY
+    contentWidth: right + horizontalPadding + viewportOffsetX,
+    contentHeight: bottom + base.paddingY + viewportOffsetY
   };
 }
 
@@ -116,4 +124,17 @@ function rectsCollideWithGap(a: PackedRect, b: PackedRect, base: FlowBaseMetrics
 
 function uniqueSorted(values: number[]) {
   return Array.from(new Set(values.map((value) => Math.round(value)))).sort((a, b) => a - b);
+}
+
+function symmetricHorizontalPadding(viewportWidth: number, base: FlowBaseMetrics) {
+  const minPadding = Math.max(0, base.paddingX);
+  const stride = base.width + base.gapX;
+  if (!Number.isFinite(viewportWidth) || viewportWidth <= 0 || base.width <= 0 || stride <= 0) {
+    return minPadding;
+  }
+
+  const availableWidth = Math.max(base.width, viewportWidth - minPadding * 2);
+  const columns = Math.max(1, Math.floor((availableWidth + base.gapX) / stride));
+  const rowWidth = columns * base.width + Math.max(0, columns - 1) * base.gapX;
+  return Math.max(minPadding, Math.floor((viewportWidth - rowWidth) / 2));
 }

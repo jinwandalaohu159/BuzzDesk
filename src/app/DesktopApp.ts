@@ -43,6 +43,7 @@ import {
   showNativeDesktopContextMenu,
   showNativeItemContextMenu
 } from "../system/desktopApi";
+import { desktopViewport } from "../system/desktopViewport";
 import { warmIconImages } from "../system/iconWarmup";
 import type {
   AppNode,
@@ -254,6 +255,9 @@ export class DesktopApp {
         return;
       }
 
+      this.render();
+      await waitForPaint();
+      await this.logDesktopDiagnostics("desktop layer shown");
       this.startDesktopAutoSync();
       this.scheduleFullDesktopItemLoad();
     } catch (error) {
@@ -270,7 +274,7 @@ export class DesktopApp {
     }
 
     const diagnostics = await getDesktopDiagnostics();
-    console.warn("Desktop Layer diagnostics", { reason, diagnostics });
+    console.info("Desktop Layer diagnostics", { reason, diagnostics });
   }
 
   private installNativeIconSafetyHooks() {
@@ -340,9 +344,17 @@ export class DesktopApp {
   private render() {
     this.pruneDetachedUiState();
     const nodes = this.store.getNodes();
-    const settings = fitDesktopSettings(this.store.getSettings(), nodes, window.innerWidth, window.innerHeight);
+    const viewport = desktopViewport();
+    const settings = fitDesktopSettings(this.store.getSettings(), nodes, viewport.width, viewport.height);
     applyDesktopSettings(settings);
-    this.layout = computeDesktopLayout(nodes, window.innerWidth, window.innerHeight, settings);
+    this.layout = computeDesktopLayout(
+      nodes,
+      viewport.width,
+      viewport.height,
+      settings,
+      viewport.offsetX,
+      viewport.offsetY
+    );
     const selectedIds = this.desktopSelectionForRender();
     this.grid.replaceChildren(
       ...nodes.map((node) =>
@@ -1844,9 +1856,17 @@ export class DesktopApp {
 
   private previewDesktopSettings(settings: DesktopSettings) {
     const nodes = this.store.getNodes();
-    const fitted = fitDesktopSettings(settings, nodes, window.innerWidth, window.innerHeight);
+    const viewport = desktopViewport();
+    const fitted = fitDesktopSettings(settings, nodes, viewport.width, viewport.height);
     applyDesktopSettings(fitted);
-    this.layout = computeDesktopLayout(nodes, window.innerWidth, window.innerHeight, fitted);
+    this.layout = computeDesktopLayout(
+      nodes,
+      viewport.width,
+      viewport.height,
+      fitted,
+      viewport.offsetX,
+      viewport.offsetY
+    );
 
     for (const node of nodes) {
       const slot = this.layout.get(node.id);
@@ -2097,13 +2117,14 @@ export class DesktopApp {
   }
 
   private folderPanelSize(folder: FolderNode, appearance: FolderAppearanceSettings = folder.appearance) {
-    const firstPass = panelSizeFor(window.innerWidth, window.innerHeight, appearance);
+    const viewport = desktopViewport();
+    const firstPass = panelSizeFor(viewport.width, viewport.height, appearance);
     const firstPageSize = Math.max(1, firstPass.columns * firstPass.rows);
     if (folder.children.length <= firstPageSize) {
       return firstPass;
     }
 
-    return panelSizeFor(window.innerWidth, window.innerHeight, appearance, folderPagerHeight);
+    return panelSizeFor(viewport.width, viewport.height, appearance, folderPagerHeight);
   }
 
   private setOpenFolderPage(page: number, transitionStart?: { dragX: number; width: number }) {
@@ -3031,11 +3052,12 @@ export class DesktopApp {
     node: FolderNode,
     slot: LayoutSlot
   ): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+    const viewport = desktopViewport();
     const settings = fitDesktopSettings(
       this.store.getSettings(),
       this.store.getNodes(),
-      window.innerWidth,
-      window.innerHeight
+      viewport.width,
+      viewport.height
     );
     const metrics = folderTileMetrics(settings, node.appearance);
     const coverWidth = metrics.iconShellWidth;
@@ -3209,21 +3231,24 @@ export class DesktopApp {
     const scrollTop = this.root.scrollTop;
     const layoutX = clientX + scrollLeft;
     const layoutY = clientY + scrollTop;
-    const visibleBottom = window.innerHeight + scrollTop;
+    const viewport = desktopViewport();
+    const visibleBottom = viewport.offsetY + viewport.height + scrollTop;
     const settings = fitDesktopSettings(
       this.store.getSettings(),
       this.store.getNodes(),
-      window.innerWidth,
-      window.innerHeight
+      viewport.width,
+      viewport.height
     );
 
     return desktopIndexForPoint(
       layoutX,
       layoutY,
-      window.innerWidth,
+      viewport.width,
       visibleBottom,
       this.store.getNodes(),
-      settings
+      settings,
+      viewport.offsetX,
+      viewport.offsetY
     );
   }
 

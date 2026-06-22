@@ -61,9 +61,10 @@ input {
   position: fixed;
   inset: 0;
   overflow: auto;
+  width: 100vw;
   height: 100vh;
   outline: none;
-  background: transparent;
+  background: rgba(0, 0, 0, 0.001);
   scrollbar-width: none;
   overscroll-behavior: contain;
 }
@@ -75,6 +76,8 @@ input {
 
 .desktop-stage {
   position: relative;
+  min-width: 100vw;
+  min-height: 100vh;
   height: var(--desktop-content-height);
   width: var(--desktop-content-width);
   contain: layout paint style;
@@ -84,6 +87,8 @@ input {
   position: absolute;
   left: 0;
   top: 0;
+  min-width: 100vw;
+  min-height: 100vh;
   width: var(--desktop-content-width);
   height: var(--desktop-content-height);
 }

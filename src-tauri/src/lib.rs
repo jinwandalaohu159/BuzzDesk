@@ -28,9 +28,21 @@ pub struct DesktopItem {
 pub struct DesktopDiagnostics {
     pub desktop_list_view_found: bool,
     pub desktop_host_found: bool,
+    pub virtual_screen_bounds: Option<WindowBounds>,
+    pub desktop_host_bounds: Option<WindowBounds>,
+    pub desktop_layer_bounds: Option<WindowBounds>,
     pub shell_item_count: Option<usize>,
     pub fallback_item_count: Option<usize>,
     pub last_error: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct WindowBounds {
+    pub x: i32,
+    pub y: i32,
+    pub width: i32,
+    pub height: i32,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -51,8 +63,20 @@ fn scan_desktop_items_fast() -> Result<Vec<DesktopItem>, String> {
 }
 
 #[tauri::command]
-fn desktop_diagnostics() -> DesktopDiagnostics {
-    platform::desktop_diagnostics()
+fn desktop_diagnostics(app: AppHandle) -> DesktopDiagnostics {
+    #[cfg(windows)]
+    {
+        let layer_hwnd = app
+            .get_webview_window("main")
+            .and_then(|window| window.hwnd().ok());
+        return platform::desktop_diagnostics(layer_hwnd);
+    }
+
+    #[cfg(not(windows))]
+    {
+        let _ = app;
+        platform::desktop_diagnostics()
+    }
 }
 
 #[tauri::command]
@@ -444,6 +468,9 @@ mod platform {
         DesktopDiagnostics {
             desktop_list_view_found: false,
             desktop_host_found: false,
+            virtual_screen_bounds: None,
+            desktop_host_bounds: None,
+            desktop_layer_bounds: None,
             shell_item_count: Some(0),
             fallback_item_count: Some(0),
             last_error: None,
@@ -493,7 +520,7 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use super::{DesktopDiagnostics, DesktopItem, NativeContextMenuResult};
+    use super::{DesktopDiagnostics, DesktopItem, NativeContextMenuResult, WindowBounds};
     use base64::{engine::general_purpose, Engine as _};
     use std::cell::RefCell;
     use std::collections::{BTreeMap, HashMap};
@@ -514,6 +541,7 @@ mod platform {
     };
 
     const MAX_ICON_DATA_URL_CACHE_ENTRIES: usize = 256;
+    const DESKTOP_LAYER_EDGE_BLEED_PX: i32 = 20;
 
     static COPIED_DESKTOP_ITEM: Mutex<Option<PathBuf>> = Mutex::new(None);
     static ICON_DATA_URL_CACHE: OnceLock<Mutex<HashMap<i32, String>>> = OnceLock::new();
@@ -576,14 +604,15 @@ mod platform {
     use windows::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, CreatePopupMenu, DefWindowProcW, DestroyIcon, DestroyMenu, EnumWindows,
         FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos, GetIconInfo,
-        GetSystemMetrics, GetWindowLongW, PrivateExtractIconsW, SendMessageTimeoutW,
+        GetSystemMetrics, GetWindowLongW, GetWindowRect, PrivateExtractIconsW, SendMessageTimeoutW,
         SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowLongW, SetWindowPos,
         ShowWindow, TrackPopupMenuEx, GWLP_WNDPROC, GWL_STYLE, HICON, HTCLIENT, ICONINFO,
-        SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-        SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD,
-        TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST,
-        WNDPROC, WS_CAPTION, WS_CHILD, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU,
-        WS_THICKFRAME, WS_VISIBLE,
+        SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
+        SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
+        WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST, WNDPROC, WS_CAPTION,
+        WS_CHILD, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
+        WS_VISIBLE,
     };
 
     pub fn scan_desktop_items() -> Result<Vec<DesktopItem>, String> {
@@ -635,9 +664,13 @@ mod platform {
         Ok(items.into_values().collect())
     }
 
-    pub fn desktop_diagnostics() -> DesktopDiagnostics {
+    pub fn desktop_diagnostics(layer_hwnd: Option<HWND>) -> DesktopDiagnostics {
         let desktop_list_view_found = find_desktop_list_view().is_some();
-        let desktop_host_found = ensure_desktop_host_window().is_some();
+        let desktop_host = ensure_desktop_host_window();
+        let desktop_host_found = desktop_host.is_some();
+        let virtual_screen_bounds = Some(virtual_screen_bounds());
+        let desktop_host_bounds = desktop_host.and_then(window_bounds);
+        let desktop_layer_bounds = layer_hwnd.and_then(window_bounds);
         let mut last_error = None;
 
         let shell_item_count = match scan_shell_desktop_items(false) {
@@ -664,6 +697,9 @@ mod platform {
         DesktopDiagnostics {
             desktop_list_view_found,
             desktop_host_found,
+            virtual_screen_bounds,
+            desktop_host_bounds,
+            desktop_layer_bounds,
             shell_item_count,
             fallback_item_count,
             last_error,
@@ -1426,13 +1462,13 @@ mod platform {
 
             SetParent(hwnd, Some(parent)).map_err(|error| format!("SetParent failed: {error}"))?;
 
-            let (width, height) = desktop_host_client_size(parent);
+            let (x, y, width, height) = desktop_layer_bounds(parent);
             let show_flag = if show { SWP_SHOWWINDOW } else { SWP_NOACTIVATE };
             SetWindowPos(
                 hwnd,
                 None,
-                0,
-                0,
+                x,
+                y,
                 width,
                 height,
                 SWP_NOACTIVATE | SWP_FRAMECHANGED | show_flag,
@@ -1443,18 +1479,52 @@ mod platform {
         Ok(())
     }
 
-    unsafe fn desktop_host_client_size(parent: HWND) -> (i32, i32) {
+    unsafe fn desktop_layer_bounds(parent: HWND) -> (i32, i32, i32, i32) {
         let mut rect = RECT::default();
         if GetClientRect(parent, &mut rect).is_ok() {
             let width = (rect.right - rect.left).max(1);
             let height = (rect.bottom - rect.top).max(1);
-            return (width, height);
+            return (
+                -DESKTOP_LAYER_EDGE_BLEED_PX,
+                -DESKTOP_LAYER_EDGE_BLEED_PX,
+                width + DESKTOP_LAYER_EDGE_BLEED_PX * 2,
+                height + DESKTOP_LAYER_EDGE_BLEED_PX * 2,
+            );
         }
 
         (
-            GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1),
-            GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1),
+            GetSystemMetrics(SM_XVIRTUALSCREEN) - DESKTOP_LAYER_EDGE_BLEED_PX,
+            GetSystemMetrics(SM_YVIRTUALSCREEN) - DESKTOP_LAYER_EDGE_BLEED_PX,
+            GetSystemMetrics(SM_CXVIRTUALSCREEN).max(1) + DESKTOP_LAYER_EDGE_BLEED_PX * 2,
+            GetSystemMetrics(SM_CYVIRTUALSCREEN).max(1) + DESKTOP_LAYER_EDGE_BLEED_PX * 2,
         )
+    }
+
+    fn virtual_screen_bounds() -> WindowBounds {
+        unsafe {
+            WindowBounds {
+                x: GetSystemMetrics(SM_XVIRTUALSCREEN),
+                y: GetSystemMetrics(SM_YVIRTUALSCREEN),
+                width: GetSystemMetrics(SM_CXVIRTUALSCREEN).max(0),
+                height: GetSystemMetrics(SM_CYVIRTUALSCREEN).max(0),
+            }
+        }
+    }
+
+    fn window_bounds(hwnd: HWND) -> Option<WindowBounds> {
+        unsafe {
+            let mut rect = RECT::default();
+            if GetWindowRect(hwnd, &mut rect).is_err() {
+                return None;
+            }
+
+            Some(WindowBounds {
+                x: rect.left,
+                y: rect.top,
+                width: (rect.right - rect.left).max(0),
+                height: (rect.bottom - rect.top).max(0),
+            })
+        }
     }
 
     fn desktop_roots() -> Vec<PathBuf> {
@@ -2487,10 +2557,37 @@ mod platform {
                 Some(&mut result),
             );
 
-            find_shell_desktop_host()
+            let preferred = find_shell_desktop_host()
                 .or_else(find_workerw_desktop_host)
-                .or(Some(progman))
+                .or(Some(progman))?;
+
+            if window_covers_virtual_screen(preferred) {
+                return Some(preferred);
+            }
+
+            if let Some(full_size_worker) = find_full_size_workerw_host() {
+                return Some(full_size_worker);
+            }
+
+            if window_covers_virtual_screen(progman) {
+                return Some(progman);
+            }
+
+            Some(preferred)
         }
+    }
+
+    fn window_covers_virtual_screen(hwnd: HWND) -> bool {
+        let Some(bounds) = window_bounds(hwnd) else {
+            return false;
+        };
+        let screen = virtual_screen_bounds();
+        const TOLERANCE_PX: i32 = 2;
+
+        bounds.x <= screen.x + TOLERANCE_PX
+            && bounds.y <= screen.y + TOLERANCE_PX
+            && bounds.x + bounds.width >= screen.x + screen.width - TOLERANCE_PX
+            && bounds.y + bounds.height >= screen.y + screen.height - TOLERANCE_PX
     }
 
     fn find_shell_desktop_host() -> Option<HWND> {
@@ -2573,6 +2670,32 @@ mod platform {
 
         if search.saw_shell_view {
             search.host = hwnd;
+            return BOOL(0);
+        }
+
+        BOOL(1)
+    }
+
+    fn find_full_size_workerw_host() -> Option<HWND> {
+        let mut found = HWND(std::ptr::null_mut());
+        unsafe {
+            let _ = EnumWindows(
+                Some(enum_full_size_workerw_host),
+                LPARAM(&mut found as *mut HWND as isize),
+            );
+        }
+
+        if found.0.is_null() {
+            None
+        } else {
+            Some(found)
+        }
+    }
+
+    unsafe extern "system" fn enum_full_size_workerw_host(hwnd: HWND, lparam: LPARAM) -> BOOL {
+        if window_class_name(hwnd) == "WorkerW" && window_covers_virtual_screen(hwnd) {
+            let output = lparam.0 as *mut HWND;
+            *output = hwnd;
             return BOOL(0);
         }
 

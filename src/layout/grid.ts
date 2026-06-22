@@ -31,11 +31,19 @@ export function computeDesktopLayout(
   nodes: DesktopNode[],
   viewportWidth: number,
   viewportHeight: number,
-  settings: DesktopSettings
+  settings: DesktopSettings,
+  viewportOffsetX = 0,
+  viewportOffsetY = 0
 ): Map<string, LayoutSlot> {
-  const { slots, contentWidth, contentHeight } = layoutDesktopNodes(nodes, viewportWidth, settings);
-  const stageWidth = Math.max(viewportWidth, contentWidth);
-  const stageHeight = Math.max(viewportHeight, contentHeight);
+  const { slots, contentWidth, contentHeight } = layoutDesktopNodes(
+    nodes,
+    viewportWidth,
+    settings,
+    viewportOffsetX,
+    viewportOffsetY
+  );
+  const stageWidth = Math.max(viewportWidth + viewportOffsetX * 2, contentWidth);
+  const stageHeight = Math.max(viewportHeight + viewportOffsetY * 2, contentHeight);
   document.documentElement.style.setProperty("--desktop-content-width", `${stageWidth}px`);
   document.documentElement.style.setProperty("--desktop-content-height", `${stageHeight}px`);
 
@@ -48,13 +56,15 @@ export function desktopIndexForPoint(
   viewportWidth: number,
   viewportHeight: number,
   nodes: DesktopNode[],
-  settings: DesktopSettings
+  settings: DesktopSettings,
+  viewportOffsetX = 0,
+  viewportOffsetY = 0
 ) {
   if (nodes.length === 0) {
     return 0;
   }
 
-  const { slots } = layoutDesktopNodes(nodes, viewportWidth, settings);
+  const { slots } = layoutDesktopNodes(nodes, viewportWidth, settings, viewportOffsetX, viewportOffsetY);
   const ordered = nodes
     .map((node, index) => ({ index, slot: slots.get(node.id) }))
     .filter((entry): entry is { index: number; slot: LayoutSlot } => Boolean(entry.slot));
@@ -123,14 +133,22 @@ function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
-function layoutDesktopNodes(nodes: DesktopNode[], viewportWidth: number, settings: DesktopSettings) {
+function layoutDesktopNodes(
+  nodes: DesktopNode[],
+  viewportWidth: number,
+  settings: DesktopSettings,
+  viewportOffsetX = 0,
+  viewportOffsetY = 0
+) {
   const base = desktopTileMetrics(settings);
   return layoutDesktopFlow(
     nodes,
     viewportWidth,
     base,
     (node) => desktopNodeTileMetrics(settings, node),
-    (node) => shouldIsolateDesktopNode(settings, node)
+    (node) => shouldIsolateDesktopNode(settings, node),
+    viewportOffsetX,
+    viewportOffsetY
   );
 }
 

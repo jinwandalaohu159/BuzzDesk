@@ -15,9 +15,19 @@ export interface DesktopSourceItem {
 export interface DesktopDiagnostics {
   desktopListViewFound: boolean;
   desktopHostFound: boolean;
+  virtualScreenBounds?: WindowBounds | null;
+  desktopHostBounds?: WindowBounds | null;
+  desktopLayerBounds?: WindowBounds | null;
   shellItemCount?: number | null;
   fallbackItemCount?: number | null;
   lastError?: string | null;
+}
+
+export interface WindowBounds {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 }
 
 export interface NativeContextMenuResult {
