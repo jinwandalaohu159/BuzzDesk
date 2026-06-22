@@ -12,6 +12,7 @@ export function captureRects(root: ParentNode): Map<string, DOMRect> {
 }
 
 interface FlipOptions {
+  skipIds?: Set<string>;
   skipNewIds?: Set<string>;
 }
 
@@ -20,6 +21,10 @@ export function playFlip(root: ParentNode, before: Map<string, DOMRect>, options
     root.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
       const id = element.dataset.nodeId;
       if (!id || element.classList.contains("is-dragging")) {
+        return;
+      }
+
+      if (options.skipIds?.has(id)) {
         return;
       }
 

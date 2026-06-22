@@ -3,7 +3,8 @@ import type {
   DesktopSettings,
   DesktopNode,
   FolderAppearanceSettings,
-  FolderNode
+  FolderNode,
+  PersistedNode
 } from "../types";
 import {
   createDefaultFolderAppearance,
@@ -50,45 +51,14 @@ export class DesktopStore {
       return;
     }
 
-    const scanned = new Map(scannedItems.map((item) => [item.id, item]));
-    const scannedByPath = createScannedPathIndex(scannedItems);
-    const used = new Set<string>();
-    const nodes: DesktopNode[] = [];
+    this.nodes = reconcileNodesWithScanned(saved.nodes, scannedItems);
+    this.persistAndEmit();
+  }
 
-    for (const node of saved.nodes) {
-      if (node.type === "item") {
-        const current = resolveScannedItem(node, scanned, scannedByPath, used);
-        if (current) {
-          nodes.push(current);
-          used.add(current.id);
-        }
-        continue;
-      }
-
-      const children = node.children
-        .map((child) => resolveScannedItem(child, scanned, scannedByPath, used))
-        .filter((child): child is AppNode => Boolean(child));
-
-      children.forEach((child) => used.add(child.id));
-
-      if (children.length > 1) {
-        nodes.push({
-          ...node,
-          appearance: normalizeFolderAppearance(node.appearance, defaultFolderAppearance),
-          children
-        });
-      } else {
-        nodes.push(...children);
-      }
-    }
-
-    for (const item of scannedItems) {
-      if (!used.has(item.id)) {
-        nodes.push(item);
-      }
-    }
-
-    this.nodes = nodes;
+  syncScannedItems(scannedItems: AppNode[]) {
+    this.nodes = this.nodes.length > 0
+      ? reconcileNodesWithScanned(this.nodes, scannedItems)
+      : scannedItems;
     this.persistAndEmit();
   }
 
@@ -383,6 +353,51 @@ export class DesktopStore {
     saveState(this.nodes, this.settings);
     this.listeners.forEach((listener) => listener());
   }
+}
+
+function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNode>, scannedItems: AppNode[]) {
+  const scanned = new Map(scannedItems.map((item) => [item.id, item]));
+  const scannedByPath = createScannedPathIndex(scannedItems);
+  const used = new Set<string>();
+  const nodes: DesktopNode[] = [];
+
+  for (const node of sourceNodes) {
+    if (node.type === "item") {
+      const current = resolveScannedItem(node, scanned, scannedByPath, used);
+      if (current) {
+        nodes.push(current);
+        used.add(current.id);
+      }
+      continue;
+    }
+
+    const children = node.children
+      .map((child) => resolveScannedItem(child, scanned, scannedByPath, used))
+      .filter((child): child is AppNode => Boolean(child));
+
+    children.forEach((child) => used.add(child.id));
+
+    if (children.length > 1) {
+      nodes.push({
+        type: "folder",
+        id: node.id,
+        name: node.name,
+        createdAt: node.createdAt,
+        appearance: normalizeFolderAppearance(node.appearance, defaultFolderAppearance),
+        children
+      });
+    } else {
+      nodes.push(...children);
+    }
+  }
+
+  for (const item of scannedItems) {
+    if (!used.has(item.id)) {
+      nodes.push(item);
+    }
+  }
+
+  return nodes;
 }
 
 function clampIndex(index: number, length: number) {

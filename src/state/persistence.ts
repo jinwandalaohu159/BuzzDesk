@@ -16,8 +16,8 @@ export function loadState(): PersistedDesktopState | null {
       return null;
     }
 
-    const parsed = JSON.parse(raw) as PersistedDesktopState;
-    return parsed.version === 1 ? parsed : null;
+    const parsed = JSON.parse(raw) as unknown;
+    return isPersistedDesktopState(parsed) ? parsed : null;
   } catch {
     return null;
   }
@@ -72,4 +72,46 @@ function toPersistedItem(node: PersistedItemNode | AppNode): PersistedItemNode {
     path: node.path ?? null,
     launchId: node.launchId ?? null
   };
+}
+
+function isPersistedDesktopState(value: unknown): value is PersistedDesktopState {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const state = value as Partial<PersistedDesktopState>;
+  return state.version === 1 && Array.isArray(state.nodes) && state.nodes.every(isPersistedNode);
+}
+
+function isPersistedNode(value: unknown): value is PersistedNode {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const node = value as Partial<PersistedNode>;
+  if (isPersistedItemNode(value)) {
+    return true;
+  }
+
+  if (node.type !== "folder") {
+    return false;
+  }
+
+  const folder = node as Partial<Extract<PersistedNode, { type: "folder" }>>;
+  return (
+    typeof folder.id === "string" &&
+    typeof folder.name === "string" &&
+    typeof folder.createdAt === "number" &&
+    Array.isArray(folder.children) &&
+    folder.children.every(isPersistedItemNode)
+  );
+}
+
+function isPersistedItemNode(value: unknown): value is PersistedItemNode {
+  if (!value || typeof value !== "object") {
+    return false;
+  }
+
+  const item = value as Partial<PersistedItemNode>;
+  return item.type === "item" && typeof item.id === "string";
 }

@@ -1,5 +1,7 @@
 export type DesktopItemKind = "app" | "file" | "directory" | "system";
 
+export type FolderCoverSize = "small" | "medium" | "large";
+
 export interface DesktopSourceItem {
   id: string;
   name: string;
@@ -32,17 +34,20 @@ export type DesktopContextMenuAction =
   | "rename"
   | "delete"
   | "properties"
-  | "folderAppearance";
+  | "folderRatio"
+  | "folderIconSmall"
+  | "folderIconMedium"
+  | "folderIconLarge";
 
 export interface DesktopSettings {
   appIconSize: number;
-  folderCoverCellSize: number;
-  folderPanelColumns: number;
-  folderPanelRows: number;
+  folderCoverSmallPx: number;
+  folderCoverMediumPx: number;
+  folderCoverLargePx: number;
 }
 
 export interface FolderAppearanceSettings {
-  folderCoverCellSize: number;
+  folderCoverSize: FolderCoverSize;
   folderPanelColumns: number;
   folderPanelRows: number;
 }

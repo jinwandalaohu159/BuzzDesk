@@ -1,21 +1,26 @@
 import { captureRects, playFlip } from "../animation/flip";
-import { captureFolderItemRects, playFolderClose, playFolderLayerMorph } from "../animation/folderPanel";
+import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../animation/drag";
+import { playFolderClose } from "../animation/folderPanel";
 import { playFolderBirth, playMergeIntoTarget } from "../animation/merge";
-import { desktopFallbackMenuItems, itemFallbackMenuItems } from "./contextMenuModel";
+import { desktopFallbackMenuItems, itemFallbackMenuItems, folderContextMenuItems } from "./contextMenuModel";
 import { computeDesktopLayout, desktopIndexForPoint, panelSizeFor } from "../layout/grid";
 import {
   renderContextMenu,
   renderDesktopNode,
+  applyFolderTileShellStyle,
   renderFolderCover,
   renderFolderLayerContent,
   renderIcon,
-  renderSettingsLayer
+  renderSettingsLayer,
+  renderRatioDialog
 } from "../render/components";
 import {
   applyDesktopSettings,
-  createDefaultFolderAppearance,
   defaultDesktopSettings,
   fitDesktopSettings,
+  folderRatioMax,
+  folderRatioMin,
+  folderTileMetrics,
   normalizeFolderAppearance
 } from "../settings/desktopSettings";
 import { DesktopStore } from "../state/store";
@@ -64,6 +69,8 @@ interface ActiveDrag {
   startY: number;
   currentX: number;
   currentY: number;
+  startScrollLeft: number;
+  startScrollTop: number;
   baseX: number;
   baseY: number;
   width: number;
@@ -74,6 +81,7 @@ interface ActiveDrag {
   frame: number | null;
   targetId: string | null;
   targetRect: DOMRect | null;
+  targetElement: HTMLElement | null;
   targetSnapshots: DragTargetSnapshot[];
   committing: boolean;
 }
@@ -109,7 +117,7 @@ export class DesktopApp {
   private editingFolder = false;
   private folderClosing = false;
   private settingsOpen = false;
-  private folderAppearanceTargetId: string | null = null;
+  private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
   private renamingId: string | null = null;
   private renamingFolderChild: { folderId: string; childId: string } | null = null;
@@ -130,6 +138,7 @@ export class DesktopApp {
   private suppressStoreRender = false;
   private settingsPreviewFrame: number | null = null;
   private pendingSettingsPreview: (() => void) | null = null;
+  private contextOverlayVersion = 0;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -249,7 +258,14 @@ export class DesktopApp {
     this.settingsLayer.addEventListener("click", (event) => this.onSettingsClick(event));
     this.settingsLayer.addEventListener("input", (event) => this.onSettingsInput(event));
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
-    this.contextMenuLayer.addEventListener("click", (event) => void this.onContextMenuClick(event));
+    this.contextMenuLayer.addEventListener("click", (event) => {
+      if (this.ratioDialogTargetId) {
+        this.onRatioDialogClick(event);
+      } else {
+        void this.onContextMenuClick(event);
+      }
+    });
+    this.contextMenuLayer.addEventListener("keydown", (event) => this.onContextOverlayKeyDown(event));
 
     window.addEventListener("resize", () => this.renderWithFlip());
     window.addEventListener("pointerdown", (event) => this.onGlobalPointerDown(event), true);
@@ -258,9 +274,8 @@ export class DesktopApp {
 
   private async installTraySettingsHook() {
     await listenForSettingsRequests(() => {
-      this.closeContextMenu();
+      this.clearContextOverlay();
       this.closeFolderNow();
-      this.folderAppearanceTargetId = null;
       this.settingsOpen = true;
       this.renderSettingsLayer();
     });
@@ -275,7 +290,7 @@ export class DesktopApp {
   private render() {
     this.pruneDetachedUiState();
     const nodes = this.store.getNodes();
-    const settings = fitDesktopSettings(this.store.getSettings(), nodes.length, window.innerWidth, window.innerHeight);
+    const settings = fitDesktopSettings(this.store.getSettings(), nodes, window.innerWidth, window.innerHeight);
     applyDesktopSettings(settings);
     this.layout = computeDesktopLayout(nodes, window.innerWidth, window.innerHeight, settings);
     this.grid.replaceChildren(
@@ -402,26 +417,23 @@ export class DesktopApp {
     this.settingsLayer.classList.toggle("is-open", this.settingsOpen);
 
     if (!this.settingsOpen) {
-      this.folderAppearanceTargetId = null;
       this.settingsLayer.replaceChildren();
       return;
     }
 
-    const targetFolder = this.getSettingsFolderTarget();
-    if (this.folderAppearanceTargetId && !targetFolder) {
-      this.folderAppearanceTargetId = null;
-    }
-
     this.settingsLayer.replaceChildren(
       ...renderSettingsLayer({
-        settings: this.store.getSettings(),
-        folderAppearance: targetFolder?.appearance ?? null,
-        folderName: targetFolder?.name ?? null
+        settings: this.store.getSettings()
       })
     );
   }
 
   private renderContextMenu() {
+    if (this.ratioDialogTargetId) {
+      this.contextMenuLayer.classList.add("is-open");
+      return;
+    }
+
     this.contextMenuLayer.classList.toggle("is-open", Boolean(this.contextMenu));
 
     if (!this.contextMenu) {
@@ -430,10 +442,15 @@ export class DesktopApp {
     }
 
     const node = this.contextMenuTargetNode(this.contextMenu);
-    const items =
-      this.contextMenu.type === "desktop"
-        ? desktopFallbackMenuItems()
-        : itemFallbackMenuItems(node, this.contextMenu.type === "item" ? "desktop" : "folder");
+    let items;
+
+    if (this.contextMenu.type === "desktop") {
+      items = desktopFallbackMenuItems();
+    } else if (node?.type === "folder") {
+      items = folderContextMenuItems(node.appearance.folderCoverSize);
+    } else {
+      items = itemFallbackMenuItems(node, this.contextMenu.type === "item" ? "desktop" : "folder");
+    }
 
     this.contextMenuLayer.replaceChildren(
       renderContextMenu({
@@ -550,7 +567,7 @@ export class DesktopApp {
   private onDesktopContextMenu(event: MouseEvent) {
     event.preventDefault();
     this.settingsOpen = false;
-    this.folderAppearanceTargetId = null;
+    this.clearContextOverlay();
     this.renderSettingsLayer();
 
     const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
@@ -558,6 +575,7 @@ export class DesktopApp {
       const node = this.findNode(tile.dataset.nodeId);
       if (node?.type === "item") {
         this.selectedId = node.id;
+        this.contextMenu = null;
         this.render();
         void this.openNativeContextMenu(node, event.clientX, event.clientY, {
           type: "item",
@@ -568,13 +586,14 @@ export class DesktopApp {
         return;
       }
 
-      this.contextMenu = { type: "item", x: event.clientX, y: event.clientY, nodeId: tile.dataset.nodeId };
       this.selectedId = tile.dataset.nodeId;
+      this.contextMenu = { type: "item", x: event.clientX, y: event.clientY, nodeId: tile.dataset.nodeId };
       this.render();
       return;
     }
 
     this.selectedId = null;
+    this.contextMenu = null;
     this.render();
     void this.openNativeDesktopContextMenu(event.clientX, event.clientY);
   }
@@ -611,6 +630,7 @@ export class DesktopApp {
   private onFolderContextMenu(event: MouseEvent) {
     event.preventDefault();
     event.stopPropagation();
+    this.clearContextOverlay();
 
     const item = (event.target as HTMLElement).closest<HTMLElement>("[data-folder-child-id]");
     const childId = item?.dataset.folderChildId;
@@ -621,7 +641,6 @@ export class DesktopApp {
     }
 
     this.settingsOpen = false;
-    this.folderAppearanceTargetId = null;
     this.renderSettingsLayer();
     this.selectedId = null;
     this.selectedFolderChild = { folderId, childId };
@@ -667,6 +686,7 @@ export class DesktopApp {
       frame: null,
       targetId: null,
       targetRect: null,
+      targetElement: null,
       targetSnapshots: [],
       committing: false
     };
@@ -757,15 +777,22 @@ export class DesktopApp {
 
     const before = captureRects(this.grid);
     let changed = false;
+    let focusAfterRender: string | null = null;
     this.suppressStoreRender = true;
     try {
       if (drag.started && drag.source.type === "folder") {
+        this.selectedId = drag.source.childId;
+        this.selectedFolderChild = null;
+        this.renamingFolderChild = null;
+        focusAfterRender = drag.source.childId;
         changed = this.store.moveFolderChildToDesktop(
           drag.source.folderId,
           drag.source.childId,
           this.desktopInsertionIndex(drag.currentX, drag.currentY)
         );
       } else if (drag.started && drag.source.type === "desktop") {
+        this.selectedId = drag.source.nodeId;
+        this.selectedFolderChild = null;
         changed = this.store.moveDesktopNode(
           drag.source.nodeId,
           this.desktopInsertionIndex(drag.currentX, drag.currentY)
@@ -792,6 +819,9 @@ export class DesktopApp {
     if (drag.started && changed) {
       this.render();
       playFlip(this.grid, before);
+      if (focusAfterRender) {
+        this.focusDesktopNode(focusAfterRender);
+      }
     } else if (drag.started) {
       this.renderWithFlip();
     }
@@ -819,22 +849,26 @@ export class DesktopApp {
       const active = this.drag;
       active.frame = null;
       this.updateMergeTarget(active.currentX, active.currentY);
-      const dx = active.currentX - active.startX;
-      const dy = active.currentY - active.startY;
-      const followX = active.baseX + dx;
-      const followY = active.baseY + dy;
       const magneticTarget = active.targetId && active.targetRect ? active.targetRect : null;
-      const magneticStrength = magneticTarget ? 0.22 : 0;
-      const targetX = magneticTarget
-        ? magneticTarget.left + magneticTarget.width / 2 - active.width / 2
-        : followX;
-      const targetY = magneticTarget
-        ? magneticTarget.top + magneticTarget.height / 2 - active.height / 2
-        : followY;
-      const x = followX + (targetX - followX) * magneticStrength;
-      const y = followY + (targetY - followY) * magneticStrength;
-      const scale = magneticTarget ? 0.88 : 1.035;
-      active.element.style.transform = `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+      const transform = dragFrameTransform({
+        currentX: active.currentX,
+        currentY: active.currentY,
+        startX: active.startX,
+        startY: active.startY,
+        baseX: active.baseX,
+        baseY: active.baseY,
+        width: active.width,
+        height: active.height,
+        targetRect: magneticTarget,
+        targetLayoutOffsetX: active.floating ? 0 : this.root.scrollLeft,
+        targetLayoutOffsetY: active.floating ? 0 : this.root.scrollTop
+      });
+
+      if (magneticTarget && active.targetElement) {
+        active.targetElement.style.setProperty("--merge-pull-x", `${transform.targetPullX}px`);
+        active.targetElement.style.setProperty("--merge-pull-y", `${transform.targetPullY}px`);
+      }
+      active.element.style.transform = toTransformStyle(transform);
     });
   }
 
@@ -961,6 +995,7 @@ export class DesktopApp {
     this.clearTargetStyles();
     drag.targetId = targetId;
     drag.targetRect = null;
+    drag.targetElement = null;
 
     if (!targetId) {
       return;
@@ -968,7 +1003,10 @@ export class DesktopApp {
 
     const target = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(targetId)}"]`);
     target?.classList.add("is-merge-target");
+    target?.style.setProperty("--merge-pull-x", "0px");
+    target?.style.setProperty("--merge-pull-y", "0px");
     drag.targetRect = targetRect ?? target?.getBoundingClientRect() ?? null;
+    drag.targetElement = target ?? null;
   }
 
   private async commitMerge(targetId: string) {
@@ -994,10 +1032,17 @@ export class DesktopApp {
 
     const before = captureRects(this.grid);
     const targetRect = drag.targetRect ?? targetElement?.getBoundingClientRect() ?? null;
+    const mergeAnimation = targetElement
+      ? playMergeIntoTarget(drag.element, targetElement, { restoreOriginals: false }).catch((error) => {
+          console.warn("Unable to play merge animation", error);
+        })
+      : Promise.resolve();
     if (targetElement) {
-      void playMergeIntoTarget(drag.element, targetElement).catch((error) => {
-        console.warn("Unable to play merge animation", error);
-      });
+      this.clearMergeTargetElement(targetElement);
+    }
+
+    if (targetElement) {
+      await Promise.race([mergeAnimation, waitForMergeLayoutCommit()]);
     }
 
     this.suppressStoreRender = true;
@@ -1029,16 +1074,21 @@ export class DesktopApp {
     this.drag = null;
     this.clearTargetStyles();
     if (changed) {
+      const revealedTargetId = newFolderId ?? (target?.type === "folder" ? target.id : null);
       this.render();
+      const skipFlipIds = revealedTargetId ? new Set([revealedTargetId]) : undefined;
       playFlip(this.grid, before, {
-        skipNewIds: newFolderId ? new Set([newFolderId]) : undefined
+        skipIds: skipFlipIds,
+        skipNewIds: skipFlipIds
       });
-      if (newFolderId && targetRect) {
-        this.playFolderBirthById(newFolderId, targetRect);
+      if (revealedTargetId && targetRect) {
+        this.playFolderBirthById(revealedTargetId, targetRect);
       }
     } else {
       this.renderWithFlip();
     }
+
+    await mergeAnimation;
   }
 
   private playFolderBirthById(folderId: string, originRect: DOMRect) {
@@ -1076,7 +1126,15 @@ export class DesktopApp {
   }
 
   private clearTargetStyles() {
-    this.grid.querySelectorAll(".is-merge-target").forEach((node) => node.classList.remove("is-merge-target"));
+    this.grid.querySelectorAll<HTMLElement>(".is-merge-target").forEach((node) => {
+      this.clearMergeTargetElement(node);
+    });
+  }
+
+  private clearMergeTargetElement(node: HTMLElement) {
+    node.classList.remove("is-merge-target");
+    node.style.removeProperty("--merge-pull-x");
+    node.style.removeProperty("--merge-pull-y");
   }
 
   private onFolderLayerClick(event: MouseEvent) {
@@ -1122,12 +1180,7 @@ export class DesktopApp {
 
     if (reset) {
       this.cancelSettingsPreview();
-      const folder = this.getSettingsFolderTarget();
-      if (folder) {
-        this.store.updateFolderAppearance(folder.id, createDefaultFolderAppearance());
-      } else {
-        this.store.updateSettings(defaultDesktopSettings);
-      }
+      this.store.updateSettings(defaultDesktopSettings);
       return;
     }
 
@@ -1150,7 +1203,6 @@ export class DesktopApp {
 
     this.cancelSettingsPreview();
     this.settingsOpen = false;
-    this.folderAppearanceTargetId = null;
     this.renderSettingsLayer();
   }
 
@@ -1210,13 +1262,6 @@ export class DesktopApp {
     }
 
     const next = Math.min(max, Math.max(min, Math.round(value)));
-    const folder = this.getSettingsFolderTarget();
-
-    if (folder && isFolderAppearanceKey(key)) {
-      const appearance = normalizeFolderAppearance({ ...folder.appearance, [key]: next }, folder.appearance);
-      this.scheduleSettingsPreview(() => this.previewFolderAppearance(folder.id, appearance));
-      return;
-    }
 
     if (isDesktopSettingKey(key)) {
       const settings = { ...this.store.getSettings(), [key]: next };
@@ -1249,7 +1294,7 @@ export class DesktopApp {
 
   private previewDesktopSettings(settings: DesktopSettings) {
     const nodes = this.store.getNodes();
-    const fitted = fitDesktopSettings(settings, nodes.length, window.innerWidth, window.innerHeight);
+    const fitted = fitDesktopSettings(settings, nodes, window.innerWidth, window.innerHeight);
     applyDesktopSettings(fitted);
     this.layout = computeDesktopLayout(nodes, window.innerWidth, window.innerHeight, fitted);
 
@@ -1265,6 +1310,7 @@ export class DesktopApp {
       tile.style.transform = `translate3d(${slot.x}px, ${slot.y}px, 0)`;
 
       if (node.type === "folder") {
+        applyFolderTileShellStyle(tile, node, fitted);
         this.replaceTileIcon(tile, renderFolderCover(node, fitted));
       }
     }
@@ -1272,37 +1318,8 @@ export class DesktopApp {
     this.renderFolderLayer(fitted);
   }
 
-  private previewFolderAppearance(folderId: string, appearance: FolderAppearanceSettings) {
-    const folder = this.findFolder(folderId);
-    if (!folder) {
-      return;
-    }
-
-    const nodes = this.store.getNodes();
-    const settings = fitDesktopSettings(this.store.getSettings(), nodes.length, window.innerWidth, window.innerHeight);
-    const previewFolder = {
-      ...folder,
-      appearance: normalizeFolderAppearance(appearance, folder.appearance)
-    };
-    const tile = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(folderId)}"]`);
-    if (tile) {
-      this.replaceTileIcon(tile, renderFolderCover(previewFolder, settings));
-    }
-
-    if (this.openFolderId === folderId) {
-      const beforePanel = this.folderLayer.querySelector<HTMLElement>(".folder-panel")?.getBoundingClientRect() ?? null;
-      const beforeItems = captureFolderItemRects(this.folderLayer);
-      this.renderFolderLayer(settings, previewFolder.appearance);
-      playFolderLayerMorph(this.folderLayer, beforePanel, beforeItems);
-    }
-  }
-
-  private getSettingsFolderTarget() {
-    return this.folderAppearanceTargetId ? this.findFolder(this.folderAppearanceTargetId) : null;
-  }
-
-  private getSettingsValueSource(): DesktopSettings | FolderAppearanceSettings {
-    return this.getSettingsFolderTarget()?.appearance ?? this.store.getSettings();
+  private getSettingsValueSource(): DesktopSettings {
+    return this.store.getSettings();
   }
 
   private commitSettingValue(key: string, value: number, render = true) {
@@ -1311,12 +1328,6 @@ export class DesktopApp {
     this.suppressStoreRender = !render || previousSuppress;
 
     try {
-      const folder = this.getSettingsFolderTarget();
-      if (folder && isFolderAppearanceKey(key)) {
-        this.store.updateFolderAppearance(folder.id, { [key]: value });
-        return;
-      }
-
       if (isDesktopSettingKey(key)) {
         this.store.updateSettings({ [key]: value });
       }
@@ -1369,12 +1380,21 @@ export class DesktopApp {
         return;
       }
 
-      if (action === "folderAppearance") {
-        if (menu.type === "item" && node.type === "folder") {
-          this.selectedId = node.id;
-          this.folderAppearanceTargetId = node.id;
-          this.settingsOpen = true;
-          this.render();
+      if (action === "folderRatio") {
+        if (node.type === "folder") {
+          this.showRatioDialog(node, menu.x, menu.y);
+        }
+      } else if (action === "folderIconSmall") {
+        if (node.type === "folder") {
+          this.store.updateFolderAppearance(node.id, { folderCoverSize: "small" });
+        }
+      } else if (action === "folderIconMedium") {
+        if (node.type === "folder") {
+          this.store.updateFolderAppearance(node.id, { folderCoverSize: "medium" });
+        }
+      } else if (action === "folderIconLarge") {
+        if (node.type === "folder") {
+          this.store.updateFolderAppearance(node.id, { folderCoverSize: "large" });
         }
       } else if (action === "open") {
         if (node.type === "item") {
@@ -1383,12 +1403,15 @@ export class DesktopApp {
           this.openFolderFromNode(node);
         }
       } else if (action === "rename") {
-        if (menu.type === "folderItem" && node.type === "item") {
-          this.startFolderChildRename(menu.folderId, node.id);
-        } else {
+        if (menu.type !== "folderItem") {
           this.startRename(node.id);
         }
       } else if (action === "delete") {
+        if (menu.type === "folderItem" && node.type === "item") {
+          this.moveFolderChildOut(menu.folderId, node.id);
+          return;
+        }
+
         await this.deleteNode(node);
       } else if (action === "properties" && node.type === "item") {
         await showDesktopItemProperties(node);
@@ -1397,6 +1420,87 @@ export class DesktopApp {
       }
     } catch (error) {
       console.warn("Desktop context menu action failed", action, error);
+    }
+  }
+
+  private showRatioDialog(folder: FolderNode, x: number, y: number) {
+    this.beginContextOverlayRequest();
+    this.ratioDialogTargetId = folder.id;
+    const appearance = normalizeFolderAppearance(folder.appearance);
+    this.contextMenuLayer.classList.add("is-open");
+    this.contextMenuLayer.replaceChildren(
+      renderRatioDialog({
+        x,
+        y,
+        columns: appearance.folderPanelColumns,
+        rows: appearance.folderPanelRows
+      })
+    );
+    requestAnimationFrame(() => {
+      this.contextMenuLayer.querySelector<HTMLInputElement>("[data-ratio-columns]")?.focus();
+    });
+  }
+
+  private closeRatioDialog() {
+    if (!this.ratioDialogTargetId) {
+      return;
+    }
+
+    this.invalidateContextOverlay();
+    this.ratioDialogTargetId = null;
+    this.contextMenuLayer.classList.remove("is-open");
+    this.contextMenuLayer.replaceChildren();
+  }
+
+  private onRatioDialogConfirm() {
+    if (!this.ratioDialogTargetId) {
+      return;
+    }
+
+    const colInput = this.contextMenuLayer.querySelector<HTMLInputElement>("[data-ratio-columns]");
+    const rowInput = this.contextMenuLayer.querySelector<HTMLInputElement>("[data-ratio-rows]");
+    if (!colInput || !rowInput) {
+      this.closeRatioDialog();
+      return;
+    }
+
+    const folderId = this.ratioDialogTargetId;
+    const columns = Math.max(folderRatioMin, Math.min(folderRatioMax, Math.round(Number(colInput.value) || 3)));
+    const rows = Math.max(folderRatioMin, Math.min(folderRatioMax, Math.round(Number(rowInput.value) || 3)));
+    this.closeRatioDialog();
+    this.store.updateFolderAppearance(folderId, {
+      folderPanelColumns: columns,
+      folderPanelRows: rows
+    });
+  }
+
+  private onRatioDialogClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-ratio-confirm]")) {
+      this.onRatioDialogConfirm();
+      return;
+    }
+
+    if (target.closest("[data-ratio-cancel]")) {
+      this.closeRatioDialog();
+      return;
+    }
+  }
+
+  private onContextOverlayKeyDown(event: KeyboardEvent) {
+    if (!this.ratioDialogTargetId) {
+      return;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      this.onRatioDialogConfirm();
+      return;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      this.closeRatioDialog();
     }
   }
 
@@ -1445,6 +1549,7 @@ export class DesktopApp {
       return;
     }
 
+    this.refreshFolderCloseOrigin(panel);
     this.editingFolder = false;
     this.folderClosing = true;
     this.folderLayer.classList.add("is-closing");
@@ -1457,13 +1562,56 @@ export class DesktopApp {
     }
   }
 
+  private refreshFolderCloseOrigin(panel: HTMLElement) {
+    const folder = this.getOpenFolder();
+    if (!folder) {
+      return;
+    }
+
+    const origin = this.currentFolderOpenOrigin(folder);
+    if (!origin) {
+      return;
+    }
+
+    this.folderOpenOrigin = origin;
+    panel.style.setProperty("--folder-open-x", `${origin.x}px`);
+    panel.style.setProperty("--folder-open-y", `${origin.y}px`);
+    panel.style.setProperty("--folder-open-scale", `${origin.scale}`);
+  }
+
   private closeContextMenu() {
+    this.invalidateContextOverlay();
     if (!this.contextMenu) {
       return;
     }
 
     this.contextMenu = null;
     this.renderContextMenu();
+  }
+
+  private clearContextOverlay() {
+    this.invalidateContextOverlay();
+    this.contextMenu = null;
+    this.ratioDialogTargetId = null;
+    this.contextMenuLayer.classList.remove("is-open");
+    this.contextMenuLayer.replaceChildren();
+  }
+
+  private beginContextOverlayRequest() {
+    this.invalidateContextOverlay();
+    this.contextMenu = null;
+    this.ratioDialogTargetId = null;
+    this.contextMenuLayer.classList.remove("is-open");
+    this.contextMenuLayer.replaceChildren();
+    return this.contextOverlayVersion;
+  }
+
+  private invalidateContextOverlay() {
+    this.contextOverlayVersion += 1;
+  }
+
+  private isCurrentContextOverlayRequest(version: number) {
+    return this.contextOverlayVersion === version;
   }
 
   private pruneDetachedUiState() {
@@ -1507,11 +1655,20 @@ export class DesktopApp {
   }
 
   private onGlobalPointerDown(event: PointerEvent) {
+    const target = event.target as HTMLElement;
+
+    if (this.ratioDialogTargetId) {
+      if (!target.closest(".ratio-dialog")) {
+        this.closeRatioDialog();
+      }
+      return;
+    }
+
     if (!this.contextMenu) {
       return;
     }
 
-    if ((event.target as HTMLElement).closest(".context-menu")) {
+    if (target.closest(".context-menu")) {
       return;
     }
 
@@ -1534,7 +1691,7 @@ export class DesktopApp {
     }
 
     this.desktopScanSignature = desktopItemsSignature(items);
-    this.store.hydrate(items);
+    this.store.syncScannedItems(items);
   }
 
   private startDesktopAutoSync() {
@@ -1579,7 +1736,7 @@ export class DesktopApp {
       }
 
       this.desktopScanSignature = desktopItemsSignature(items);
-      this.store.hydrate(items);
+      this.store.syncScannedItems(items);
     } finally {
       this.autoSyncInFlight = false;
     }
@@ -1621,7 +1778,7 @@ export class DesktopApp {
         return;
       }
 
-      this.store.hydrate(items);
+      this.store.syncScannedItems(items);
     } finally {
       this.fullDesktopLoadInFlight = false;
     }
@@ -1690,6 +1847,7 @@ export class DesktopApp {
         this.renamingId ||
         this.renamingFolderChild ||
         this.editingFolder ||
+        this.ratioDialogTargetId ||
         this.contextMenu ||
         this.settingsOpen
     );
@@ -1744,10 +1902,14 @@ export class DesktopApp {
     y: number,
     fallback: ContextMenuState
   ) {
-    this.closeContextMenu();
+    const requestVersion = this.beginContextOverlayRequest();
 
     try {
       const result = await showNativeItemContextMenu(node, x, y);
+      if (!this.isCurrentContextOverlayRequest(requestVersion)) {
+        return;
+      }
+
       if (result.verb === "rename") {
         if (fallback.type === "folderItem") {
           this.startFolderChildRename(fallback.folderId, fallback.childId);
@@ -1761,6 +1923,10 @@ export class DesktopApp {
         await this.syncAfterNativeShellCommand();
       }
     } catch (error) {
+      if (!this.isCurrentContextOverlayRequest(requestVersion)) {
+        return;
+      }
+
       console.warn("Unable to open native shell context menu", node.name, error);
       this.contextMenu = fallback;
       this.renderContextMenu();
@@ -1768,14 +1934,22 @@ export class DesktopApp {
   }
 
   private async openNativeDesktopContextMenu(x: number, y: number) {
-    this.closeContextMenu();
+    const requestVersion = this.beginContextOverlayRequest();
 
     try {
       const result = await showNativeDesktopContextMenu(x, y);
+      if (!this.isCurrentContextOverlayRequest(requestVersion)) {
+        return;
+      }
+
       if (result.invoked) {
         await this.syncAfterNativeShellCommand();
       }
     } catch (error) {
+      if (!this.isCurrentContextOverlayRequest(requestVersion)) {
+        return;
+      }
+
       console.warn("Unable to open native desktop context menu", error);
       this.contextMenu = { type: "desktop", x, y };
       this.renderContextMenu();
@@ -1979,9 +2153,9 @@ export class DesktopApp {
       return true;
     }
 
-    if (event.key === "Delete" && child.path) {
+    if (event.key === "Delete") {
       event.preventDefault();
-      await this.deleteNode(child);
+      this.moveFolderChildOut(folderId, childId);
       return true;
     }
 
@@ -2006,10 +2180,7 @@ export class DesktopApp {
 
     const focused = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
     const activeId = focused?.dataset.nodeId ?? this.selectedId;
-    const columns = this.desktopColumnCount(nodes);
-    const currentIndex = nodes.findIndex((node) => node.id === activeId);
-    const nextIndex = nextGridIndex(event.key, currentIndex, nodes.length, columns);
-    const next = nodes[nextIndex];
+    const next = this.desktopNavigationNode(event.key, activeId, nodes);
     if (!next) {
       return false;
     }
@@ -2022,6 +2193,71 @@ export class DesktopApp {
     this.render();
     this.focusDesktopNode(next.id);
     return true;
+  }
+
+  private desktopNavigationNode(key: string, activeId: string | null | undefined, nodes: DesktopNode[]) {
+    if (nodes.length === 0) {
+      return null;
+    }
+
+    const currentIndex = nodes.findIndex((node) => node.id === activeId);
+    if (key === "Home") {
+      return nodes[0];
+    }
+
+    if (key === "End") {
+      return nodes[nodes.length - 1];
+    }
+
+    if (currentIndex < 0) {
+      return nodes[0];
+    }
+
+    if (key === "ArrowLeft") {
+      return nodes[Math.max(0, currentIndex - 1)];
+    }
+
+    if (key === "ArrowRight") {
+      return nodes[Math.min(nodes.length - 1, currentIndex + 1)];
+    }
+
+    return this.desktopVerticalNavigationNode(key, nodes[currentIndex], nodes);
+  }
+
+  private desktopVerticalNavigationNode(key: string, current: DesktopNode, nodes: DesktopNode[]) {
+    const currentSlot = this.layout.get(current.id);
+    if (!currentSlot || (key !== "ArrowUp" && key !== "ArrowDown")) {
+      return current;
+    }
+
+    const currentCenterX = currentSlot.x + currentSlot.width / 2;
+    const currentCenterY = currentSlot.y + currentSlot.height / 2;
+    let best: { node: DesktopNode; score: number } | null = null;
+
+    for (const node of nodes) {
+      if (node.id === current.id) {
+        continue;
+      }
+
+      const slot = this.layout.get(node.id);
+      if (!slot) {
+        continue;
+      }
+
+      const centerX = slot.x + slot.width / 2;
+      const centerY = slot.y + slot.height / 2;
+      const deltaY = centerY - currentCenterY;
+      if ((key === "ArrowDown" && deltaY <= 0.5) || (key === "ArrowUp" && deltaY >= -0.5)) {
+        continue;
+      }
+
+      const score = Math.abs(deltaY) * 1000 + Math.abs(centerX - currentCenterX);
+      if (!best || score < best.score) {
+        best = { node, score };
+      }
+    }
+
+    return best?.node ?? current;
   }
 
   private handleOpenFolderNavigationKey(event: KeyboardEvent) {
@@ -2058,24 +2294,11 @@ export class DesktopApp {
     return true;
   }
 
-  private desktopColumnCount(nodes: DesktopNode[]) {
-    const firstSlot = this.layout.get(nodes[0]?.id ?? "");
-    if (!firstSlot) {
-      return 1;
-    }
-
-    return Math.max(
-      1,
-      nodes.filter((node) => {
-        const slot = this.layout.get(node.id);
-        return slot && Math.abs(slot.y - firstSlot.y) < 0.5;
-      }).length
-    );
-  }
-
   private focusDesktopNode(nodeId: string) {
     requestAnimationFrame(() => {
-      this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`)?.focus({ preventScroll: true });
+      const item = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(nodeId)}"]`);
+      item?.scrollIntoView({ block: "nearest", inline: "nearest" });
+      item?.focus({ preventScroll: true });
     });
   }
 
@@ -2089,6 +2312,25 @@ export class DesktopApp {
     });
   }
 
+  private moveFolderChildOut(folderId: string, childId: string) {
+    const folderIndex = this.store.getNodes().findIndex((node) => node.id === folderId);
+    const targetIndex = folderIndex >= 0 ? folderIndex + 1 : this.store.getNodes().length;
+
+    this.selectedId = childId;
+    this.selectedFolderChild = null;
+    this.renamingFolderChild = null;
+    const changed = this.store.moveFolderChildToDesktop(folderId, childId, targetIndex);
+    if (!changed) {
+      this.renderFolderLayer();
+      return;
+    }
+
+    if (!this.findFolder(folderId)) {
+      this.closeFolderNow();
+    }
+    this.focusDesktopNode(childId);
+  }
+
   private openFolderFromNode(node: FolderNode) {
     const element = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
     if (element) {
@@ -2096,15 +2338,7 @@ export class DesktopApp {
       return;
     }
 
-    const slot = this.layout.get(node.id);
-    this.folderOpenOrigin = slot
-      ? this.folderOpenOriginForRect(node, {
-          left: slot.x,
-          top: slot.y,
-          width: slot.width,
-          height: slot.height
-        })
-      : null;
+    this.folderOpenOrigin = this.currentFolderOpenOrigin(node);
     this.openFolderId = node.id;
     this.editingFolder = false;
     this.renamingFolderChild = null;
@@ -2114,7 +2348,6 @@ export class DesktopApp {
 
   private openFolderFromElement(node: FolderNode, element: HTMLElement) {
     this.settingsOpen = false;
-    this.folderAppearanceTargetId = null;
     this.renderSettingsLayer();
 
     const cover = element.querySelector<HTMLElement>(".folder-cover");
@@ -2125,6 +2358,40 @@ export class DesktopApp {
     this.renamingFolderChild = null;
     this.selectedFolderChild = null;
     this.renderFolderLayer();
+  }
+
+  private currentFolderOpenOrigin(node: FolderNode): FolderOpenOrigin | null {
+    const element = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(node.id)}"]`);
+    if (element) {
+      const cover = element.querySelector<HTMLElement>(".folder-cover");
+      const rect = cover?.getBoundingClientRect() ?? element.getBoundingClientRect();
+      return this.folderOpenOriginForRect(node, rect);
+    }
+
+    const slot = this.layout.get(node.id);
+    return slot ? this.folderOpenOriginForRect(node, this.folderCoverRectForSlot(node, slot)) : null;
+  }
+
+  private folderCoverRectForSlot(
+    node: FolderNode,
+    slot: LayoutSlot
+  ): Pick<DOMRect, "left" | "top" | "width" | "height"> {
+    const settings = fitDesktopSettings(
+      this.store.getSettings(),
+      this.store.getNodes(),
+      window.innerWidth,
+      window.innerHeight
+    );
+    const metrics = folderTileMetrics(settings, node.appearance);
+    const coverWidth = metrics.iconShellWidth;
+    const coverHeight = metrics.iconShellHeight;
+
+    return {
+      left: slot.x + slot.width / 2 - coverWidth / 2,
+      top: slot.y + 8,
+      width: coverWidth,
+      height: coverHeight
+    };
   }
 
   private folderOpenOriginForRect(
@@ -2280,18 +2547,24 @@ export class DesktopApp {
   }
 
   private desktopInsertionIndex(clientX: number, clientY: number) {
+    const scrollLeft = this.root.scrollLeft;
+    const scrollTop = this.root.scrollTop;
+    const layoutX = clientX + scrollLeft;
+    const layoutY = clientY + scrollTop;
+    const visibleBottom = window.innerHeight + scrollTop;
     const settings = fitDesktopSettings(
       this.store.getSettings(),
-      this.store.getNodes().length,
+      this.store.getNodes(),
       window.innerWidth,
       window.innerHeight
     );
 
     return desktopIndexForPoint(
-      clientX,
-      clientY,
+      layoutX,
+      layoutY,
       window.innerWidth,
-      this.store.getNodes().length,
+      visibleBottom,
+      this.store.getNodes(),
       settings
     );
   }
@@ -2311,6 +2584,12 @@ function waitForPaint() {
     requestAnimationFrame(() => {
       requestAnimationFrame(() => resolve());
     });
+  });
+}
+
+function waitForMergeLayoutCommit() {
+  return new Promise<void>((resolve) => {
+    window.setTimeout(resolve, 144);
   });
 }
 
@@ -2345,12 +2624,8 @@ function isNavigationKey(key: string) {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
 }
 
-function isFolderAppearanceKey(key: string): key is keyof FolderAppearanceSettings {
-  return key === "folderCoverCellSize" || key === "folderPanelColumns" || key === "folderPanelRows";
-}
-
 function isDesktopSettingKey(key: string): key is keyof DesktopSettings {
-  return key === "appIconSize" || isFolderAppearanceKey(key);
+  return key === "appIconSize" || key === "folderCoverSmallPx" || key === "folderCoverMediumPx" || key === "folderCoverLargePx";
 }
 
 function nextGridIndex(key: string, currentIndex: number, itemCount: number, columns: number) {

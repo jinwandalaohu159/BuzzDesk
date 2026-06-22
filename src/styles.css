@@ -3,6 +3,7 @@
   color: white;
   background: transparent;
   color-scheme: dark;
+  --desktop-content-width: 100vw;
   --desktop-content-height: 100vh;
   --glass: rgba(245, 248, 255, 0.16);
   --glass-strong: rgba(250, 252, 255, 0.24);
@@ -58,22 +59,31 @@ input {
 .desktop-shell {
   position: fixed;
   inset: 0;
-  overflow: hidden;
+  overflow: auto;
   height: 100vh;
   outline: none;
   background: transparent;
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+}
+
+.desktop-shell::-webkit-scrollbar {
+  width: 0;
+  height: 0;
 }
 
 .desktop-stage {
   position: relative;
   height: var(--desktop-content-height);
-  width: 100%;
+  width: var(--desktop-content-width);
   contain: layout paint style;
 }
 
 .desktop-grid {
   position: absolute;
-  inset: 0;
+  left: 0;
+  top: 0;
+  width: var(--desktop-content-width);
   height: var(--desktop-content-height);
 }
 
@@ -128,8 +138,9 @@ input {
 }
 
 .desktop-tile.is-merge-target .icon-shell {
-  transform: scale(.92);
+  transform: translate3d(var(--merge-pull-x, 0px), var(--merge-pull-y, 0px), 0) scale(.9);
   filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.28));
+  transition-duration: 90ms;
 }
 
 .desktop-tile:active .icon-shell,
@@ -163,9 +174,8 @@ input {
 
 .icon-shell {
   position: relative;
-  width: 64px;
-  width: var(--desktop-icon-shell-size);
-  height: var(--desktop-icon-shell-size);
+  width: var(--desktop-icon-shell-width, var(--desktop-icon-shell-size));
+  height: var(--desktop-icon-shell-height, var(--desktop-icon-shell-size));
   display: grid;
   place-items: center;
   transition: transform 160ms cubic-bezier(.2,.9,.2,1), filter 160ms ease;
@@ -638,7 +648,8 @@ input {
   border: 1px solid rgba(255, 255, 255, 0.32);
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.42);
   backdrop-filter: blur(28px) saturate(1.24);
-  transform: translate(-50%, -50%) scale(.96);
+  opacity: 0;
+  transform: translate(calc(-50% + var(--folder-open-x, 0px)), calc(-50% + var(--folder-open-y, 0px))) scale(var(--folder-open-scale, .18));
   transform-origin: center;
   animation: folder-open 320ms cubic-bezier(.16,.96,.18,1) forwards;
   contain: layout paint style;
@@ -735,8 +746,8 @@ input {
 }
 
 .folder-item {
-  width: 92px;
-  height: 108px;
+  width: var(--folder-panel-item-width, 92px);
+  height: var(--folder-panel-item-height, 108px);
   border: 0;
   padding: 6px;
   background: transparent;
@@ -746,6 +757,11 @@ input {
   grid-template-rows: 64px 1fr;
   place-items: center;
   touch-action: none;
+}
+
+.folder-item .icon-shell {
+  width: var(--folder-panel-icon-size, var(--desktop-icon-shell-size));
+  height: var(--folder-panel-icon-size, var(--desktop-icon-shell-size));
 }
 
 .folder-item:hover {
@@ -851,6 +867,112 @@ input {
   opacity: .42;
 }
 
+.context-menu button.is-checked {
+  color: rgba(255, 255, 255, 0.92);
+  font-weight: 600;
+}
+
+.ratio-dialog {
+  position: fixed;
+  min-width: 180px;
+  padding: 12px 16px;
+  border-radius: 14px;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.09)),
+    rgba(25, 30, 38, 0.72);
+  border: 1px solid rgba(255, 255, 255, 0.24);
+  box-shadow: 0 20px 56px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.28);
+  backdrop-filter: blur(22px) saturate(1.18);
+  display: grid;
+  gap: 10px;
+  animation: menu-open 110ms ease forwards;
+  z-index: 190;
+}
+
+.ratio-dialog-label {
+  color: white;
+  font-size: 13px;
+  text-shadow: var(--text-shadow);
+  text-align: center;
+}
+
+.ratio-dialog-inputs {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ratio-dialog-input {
+  width: 48px;
+  height: 32px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 6px;
+  color: white;
+  font-size: 15px;
+  font-weight: 600;
+  text-align: center;
+  text-shadow: var(--text-shadow);
+  background: rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+  -moz-appearance: textfield;
+}
+
+.ratio-dialog-input::-webkit-inner-spin-button,
+.ratio-dialog-input::-webkit-outer-spin-button {
+  -webkit-appearance: none;
+  margin: 0;
+}
+
+.ratio-dialog-input:focus {
+  outline: 0;
+  background: rgba(255, 255, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.36);
+}
+
+.ratio-dialog-sep {
+  color: rgba(255, 255, 255, 0.6);
+  font-size: 18px;
+  font-weight: 600;
+}
+
+.ratio-dialog-actions {
+  display: flex;
+  justify-content: center;
+  gap: 8px;
+}
+
+.ratio-dialog-cancel,
+.ratio-dialog-confirm {
+  height: 28px;
+  min-width: 56px;
+  border: 0;
+  border-radius: 8px;
+  padding: 0 12px;
+  font-size: 12px;
+  font-weight: 500;
+  cursor: pointer;
+}
+
+.ratio-dialog-cancel {
+  color: rgba(255, 255, 255, 0.7);
+  background: rgba(255, 255, 255, 0.08);
+}
+
+.ratio-dialog-cancel:hover {
+  background: rgba(255, 255, 255, 0.14);
+}
+
+.ratio-dialog-confirm {
+  color: white;
+  background: rgba(255, 255, 255, 0.2);
+}
+
+.ratio-dialog-confirm:hover {
+  background: rgba(255, 255, 255, 0.28);
+}
+
 @keyframes fade-in {
   to {
     opacity: 1;
@@ -858,17 +980,11 @@ input {
 }
 
 @keyframes folder-open {
-  0% {
+  from {
     opacity: 0;
     transform:
       translate(calc(-50% + var(--folder-open-x, 0px)), calc(-50% + var(--folder-open-y, 0px)))
       scale(var(--folder-open-scale, .18));
-  }
-  68% {
-    opacity: 1;
-    transform:
-      translate(calc(-50% + var(--folder-open-drift-x, 0px)), calc(-50% + var(--folder-open-drift-y, 0px)))
-      scale(1.018);
   }
   to {
     opacity: 1;

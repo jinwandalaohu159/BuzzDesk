@@ -496,6 +496,7 @@ mod platform {
     use std::ffi::{c_void, OsStr};
     use std::fs;
     use std::os::windows::ffi::OsStrExt;
+    use std::os::windows::fs::MetadataExt;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
     use windows::core::{w, Interface, BOOL, PCSTR, PCWSTR, PSTR};
@@ -538,9 +539,10 @@ mod platform {
 
     use windows::Win32::Storage::FileSystem::{
         CreateFileW, GetFileInformationByHandle, BY_HANDLE_FILE_INFORMATION,
-        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_NORMAL, FILE_FLAGS_AND_ATTRIBUTES,
-        FILE_FLAG_BACKUP_SEMANTICS, FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ,
-        FILE_SHARE_WRITE, OPEN_EXISTING, WIN32_FIND_DATAW,
+        FILE_ATTRIBUTE_DIRECTORY, FILE_ATTRIBUTE_HIDDEN, FILE_ATTRIBUTE_NORMAL,
+        FILE_ATTRIBUTE_SYSTEM, FILE_FLAGS_AND_ATTRIBUTES, FILE_FLAG_BACKUP_SEMANTICS,
+        FILE_READ_ATTRIBUTES, FILE_SHARE_DELETE, FILE_SHARE_READ, FILE_SHARE_WRITE,
+        OPEN_EXISTING, WIN32_FIND_DATAW,
     };
     use windows::Win32::System::Com::{
         CoCreateInstance, CoInitializeEx, CoTaskMemFree, CoUninitialize, CLSCTX_INPROC_SERVER,
@@ -561,7 +563,7 @@ mod platform {
         SHParseDisplayName, ShellExecuteExW, ShellExecuteW, StrRetToBufW, CMF_CANRENAME,
         CMF_NORMAL, CMINVOKECOMMANDINFO, DROPFILES, FOF_ALLOWUNDO, FOF_NOCONFIRMATION, FO_DELETE,
         GCS_VERBW, HDROP, KF_FLAG_DEFAULT, SEE_MASK_IDLIST, SEE_MASK_INVOKEIDLIST, SHCONTF_FOLDERS,
-        SHCONTF_INCLUDEHIDDEN, SHCONTF_NONFOLDERS, SHELLEXECUTEINFOW, SHFILEINFOW, SHFILEOPSTRUCTW,
+        SHCONTF_NONFOLDERS, SHELLEXECUTEINFOW, SHFILEINFOW, SHFILEOPSTRUCTW,
         SHGDN_FORPARSING, SHGDN_INFOLDER, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_PIDL,
         SHGFI_SYSICONINDEX, SHIL_EXTRALARGE, SHIL_JUMBO, SLGP_UNCPRIORITY, ShellLink,
     };
@@ -587,9 +589,11 @@ mod platform {
     fn scan_desktop_items_with_icons(include_icons: bool) -> Result<Vec<DesktopItem>, String> {
         let mut items = BTreeMap::new();
         let mut errors = Vec::new();
+        let mut shell_scan_succeeded = false;
 
         match scan_shell_desktop_items(include_icons) {
             Ok(shell_items) => {
+                shell_scan_succeeded = true;
                 for item in shell_items {
                     items.entry(item.id.clone()).or_insert(item);
                 }
@@ -606,8 +610,10 @@ mod platform {
             Err(error) => errors.push(error),
         }
 
-        for item in virtual_desktop_items(include_icons) {
-            items.entry(item.id.clone()).or_insert(item);
+        if !shell_scan_succeeded {
+            for item in virtual_desktop_items(include_icons) {
+                items.entry(item.id.clone()).or_insert(item);
+            }
         }
 
         if items.is_empty() {
@@ -671,17 +677,13 @@ mod platform {
             for entry in entries.flatten() {
                 let path = entry.path();
                 let name = desktop_name(&path);
-                if name.is_empty() || should_skip_desktop_item_name(&name) {
+                if name.is_empty() || should_skip_desktop_path(&path) {
                     continue;
                 }
 
                 let item = desktop_item_for_path(path, include_icons);
                 items.entry(item.id.clone()).or_insert(item);
             }
-        }
-
-        for item in virtual_desktop_items(include_icons) {
-            items.insert(item.id.clone(), item);
         }
 
         Ok(items.into_values().collect())
@@ -706,7 +708,7 @@ mod platform {
         let desktop =
             SHGetDesktopFolder().map_err(|error| format!("SHGetDesktopFolder failed: {error}"))?;
         let mut enum_list = None;
-        let flags = (SHCONTF_FOLDERS.0 | SHCONTF_NONFOLDERS.0 | SHCONTF_INCLUDEHIDDEN.0) as u32;
+        let flags = (SHCONTF_FOLDERS.0 | SHCONTF_NONFOLDERS.0) as u32;
         let enum_result = desktop.EnumObjects(HWND(std::ptr::null_mut()), flags, &mut enum_list);
 
         if enum_result.is_err() {
@@ -749,9 +751,16 @@ mod platform {
             return None;
         }
 
+        let path = path_from_pidl(pidl);
+        if path
+            .as_ref()
+            .is_some_and(|path| should_skip_desktop_path(Path::new(path)))
+        {
+            return None;
+        }
+
         let parsing_name =
             strret_name(desktop, pidl, SHGDN_FORPARSING).unwrap_or_else(|| name.clone());
-        let path = path_from_pidl(pidl);
         let id = if let Some(path) = path.as_ref() {
             stable_path_id(Path::new(path))
         } else {
@@ -1767,6 +1776,24 @@ mod platform {
         name.eq_ignore_ascii_case("desktop.ini")
     }
 
+    fn should_skip_desktop_path(path: &Path) -> bool {
+        if path
+            .file_name()
+            .and_then(|name| name.to_str())
+            .is_some_and(should_skip_desktop_item_name)
+        {
+            return true;
+        }
+
+        let Ok(metadata) = fs::metadata(path) else {
+            return false;
+        };
+        let attributes = metadata.file_attributes();
+        let hidden_or_system = FILE_ATTRIBUTE_HIDDEN.0 | FILE_ATTRIBUTE_SYSTEM.0;
+
+        attributes & hidden_or_system != 0
+    }
+
     fn desktop_item_for_path(path: PathBuf, include_icons: bool) -> DesktopItem {
         let id = stable_path_id(&path);
         let launch_id = path.to_string_lossy().to_string();
@@ -1850,13 +1877,17 @@ mod platform {
     }
 
     fn icon_for_path(path: &Path) -> Option<String> {
+        let wide = to_wide(&path.to_string_lossy());
         if is_shortcut_path(path) {
+            if let Some(icon) = icon_for_wide_path(&wide, FILE_ATTRIBUTE_NORMAL) {
+                return Some(icon);
+            }
+
             if let Some(icon) = icon_for_shortcut(path) {
                 return Some(icon);
             }
         }
 
-        let wide = to_wide(&path.to_string_lossy());
         let attributes = if path.is_dir() {
             FILE_ATTRIBUTE_DIRECTORY
         } else {

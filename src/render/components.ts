@@ -9,9 +9,12 @@ import type {
 } from "../types";
 import type { FolderPanelSize } from "../layout/grid";
 import {
-  folderAppearanceFromSettings,
   folderCoverCssVariables,
-  normalizeFolderAppearance
+  folderRatioMax,
+  folderRatioMin,
+  normalizeFolderAppearance,
+  desktopTileMetrics,
+  folderTileMetrics
 } from "../settings/desktopSettings";
 
 interface FolderOpenOrigin {
@@ -39,7 +42,8 @@ export function renderDesktopNode(
   settings: DesktopSettings
 ) {
   const tile = document.createElement("div");
-  tile.className = `desktop-tile ${node.type === "folder" ? "is-folder" : "is-item"}`;
+  const isFolder = node.type === "folder";
+  tile.className = `desktop-tile ${isFolder ? "is-folder" : "is-item"}`;
   tile.dataset.nodeId = node.id;
   tile.style.transform = `translate3d(${slot.x}px, ${slot.y}px, 0)`;
   tile.style.width = `${slot.width}px`;
@@ -56,12 +60,36 @@ export function renderDesktopNode(
     tile.classList.add("is-opening");
   }
 
+  if (isFolder) {
+    applyFolderTileShellStyle(tile, node, settings);
+  }
+
   const icon = node.type === "folder" ? renderFolderCover(node, settings) : renderIcon(node);
   const label =
     renamingId === node.id ? renderRenameInput(node.id, node.name) : renderTileName(node.name);
 
   tile.append(icon, label);
   return tile;
+}
+
+export function applyFolderTileShellStyle(
+  tile: HTMLElement,
+  folder: FolderNode,
+  settings: DesktopSettings
+) {
+  const folderTile = folderTileMetrics(settings, folder.appearance);
+  const baseIconShellSize = desktopTileMetrics(settings).iconShellSize;
+
+  if (folderTile.iconShellWidth === baseIconShellSize && folderTile.iconShellHeight === baseIconShellSize) {
+    tile.style.removeProperty("--desktop-icon-shell-width");
+    tile.style.removeProperty("--desktop-icon-shell-height");
+    tile.style.gridTemplateRows = "";
+    return;
+  }
+
+  tile.style.setProperty("--desktop-icon-shell-width", `${folderTile.iconShellWidth}px`);
+  tile.style.setProperty("--desktop-icon-shell-height", `${folderTile.iconShellHeight}px`);
+  tile.style.gridTemplateRows = `calc(${folderTile.iconShellHeight}px + 8px) 1fr`;
 }
 
 export function renderIcon(item: AppNode) {
@@ -103,8 +131,6 @@ export function renderFolderLayerContent(folder: FolderNode, options: FolderLaye
   panel.style.height = `${options.size.height}px`;
   panel.style.setProperty("--folder-open-x", `${options.origin?.x ?? 0}px`);
   panel.style.setProperty("--folder-open-y", `${options.origin?.y ?? 0}px`);
-  panel.style.setProperty("--folder-open-drift-x", `${(options.origin?.x ?? 0) * 0.05}px`);
-  panel.style.setProperty("--folder-open-drift-y", `${(options.origin?.y ?? 0) * 0.05}px`);
   panel.style.setProperty("--folder-open-scale", `${options.origin?.scale ?? 0.92}`);
 
   const title = document.createElement("div");
@@ -125,7 +151,12 @@ export function renderFolderLayerContent(folder: FolderNode, options: FolderLaye
 
   const items = document.createElement("div");
   items.className = "folder-items";
-  items.style.gridTemplateColumns = `repeat(${options.size.columns}, minmax(0, 92px))`;
+  items.style.setProperty("--folder-panel-item-width", `${options.size.itemWidth}px`);
+  items.style.setProperty("--folder-panel-item-height", `${options.size.itemHeight}px`);
+  items.style.setProperty("--folder-panel-icon-size", `${Math.min(64, Math.max(48, options.size.itemWidth - 12))}px`);
+  items.style.gridTemplateColumns = `repeat(${options.size.columns}, ${options.size.itemWidth}px)`;
+  items.style.gridTemplateRows = `repeat(${options.size.rows}, ${options.size.itemHeight}px)`;
+  items.style.gridAutoRows = `${options.size.itemHeight}px`;
 
   folder.children.forEach((child) => {
     const item = document.createElement("div");
@@ -161,7 +192,7 @@ export function renderFolderCover(folder: FolderNode, settings: DesktopSettings)
 
   const cover = document.createElement("span");
   cover.className = "folder-cover";
-  const appearance = normalizeFolderAppearance(folder.appearance, folderAppearanceFromSettings(settings));
+  const appearance = normalizeFolderAppearance(folder.appearance);
   for (const [key, value] of Object.entries(folderCoverCssVariables(settings, appearance))) {
     cover.style.setProperty(key, value);
   }
@@ -200,7 +231,7 @@ function renderRenameInput(id: string, name: string) {
   input.value = name;
   input.maxLength = 128;
   input.dataset.renameId = id;
-  input.setAttribute("aria-label", "\u91cd\u547d\u540d");
+  input.setAttribute("aria-label", "重命名");
   return input;
 }
 
@@ -213,42 +244,32 @@ function renderFolderChildRenameInput(folderId: string, childId: string, name: s
 
 export function renderSettingsLayer(options: {
   settings: DesktopSettings;
-  folderAppearance?: FolderAppearanceSettings | null;
-  folderName?: string | null;
 }) {
-  const { settings, folderAppearance, folderName } = options;
-  const isFolderAppearance = Boolean(folderAppearance);
-  const active = folderAppearance ?? folderAppearanceFromSettings(settings);
+  const { settings } = options;
   const backdrop = document.createElement("div");
   backdrop.className = "settings-backdrop";
   backdrop.dataset.settingsClose = "true";
 
   const panel = document.createElement("section");
   panel.className = "settings-panel";
-  panel.setAttribute("aria-label", "\u684c\u9762\u5916\u89c2\u8bbe\u7f6e");
+  panel.setAttribute("aria-label", "外观设置");
 
   const header = document.createElement("header");
   header.className = "settings-header";
 
   const title = document.createElement("h2");
-  title.textContent = isFolderAppearance ? "\u6587\u4ef6\u5939\u5916\u89c2" : "\u5916\u89c2";
-  if (isFolderAppearance && folderName) {
-    const target = document.createElement("span");
-    target.className = "settings-target";
-    target.textContent = folderName;
-    title.append(target);
-  }
+  title.textContent = "设置";
 
   const close = document.createElement("button");
   close.className = "settings-close";
   close.type = "button";
   close.dataset.settingsClose = "true";
-  close.setAttribute("aria-label", "\u5173\u95ed\u8bbe\u7f6e");
+  close.setAttribute("aria-label", "关闭设置");
 
   const reset = document.createElement("button");
   reset.className = "settings-reset";
   reset.type = "button";
-  reset.textContent = "\u6062\u590d\u9ed8\u8ba4";
+  reset.textContent = "恢复默认";
   reset.dataset.settingsReset = "true";
 
   const actions = document.createElement("div");
@@ -261,17 +282,11 @@ export function renderSettingsLayer(options: {
   const controls = document.createElement("div");
   controls.className = "settings-controls";
 
-  if (!isFolderAppearance) {
-    controls.append(
-      renderSettingControl("\u684c\u9762\u56fe\u6807", "appIconSize", settings.appIconSize, 48, 76, "px")
-    );
-  } else {
-    controls.append(
-      renderSettingControl("\u6298\u53e0\u56fe\u6807\u5927\u5c0f", "folderCoverCellSize", active.folderCoverCellSize, 10, 22, "px"),
-      renderSettingStepper("\u6bd4\u4f8b\u5217\u6570", "folderPanelColumns", active.folderPanelColumns, 2, 6, "\u5217"),
-      renderSettingStepper("\u6bd4\u4f8b\u884c\u6570", "folderPanelRows", active.folderPanelRows, 2, 6, "\u884c")
-    );
-  }
+  controls.append(
+    renderSettingControl("文件夹图标 小", "folderCoverSmallPx", settings.folderCoverSmallPx, 6, 40, "px"),
+    renderSettingControl("文件夹图标 中", "folderCoverMediumPx", settings.folderCoverMediumPx, 6, 40, "px"),
+    renderSettingControl("文件夹图标 大", "folderCoverLargePx", settings.folderCoverLargePx, 6, 40, "px")
+  );
 
   panel.append(controls);
   return [backdrop, panel];
@@ -338,65 +353,10 @@ function renderSettingControl(
   return row;
 }
 
-function renderSettingStepper(
-  label: string,
-  key: keyof DesktopSettings,
-  value: number,
-  min: number,
-  max: number,
-  unit: string
-) {
-  const row = document.createElement("label");
-  row.className = "settings-row";
-
-  const meta = document.createElement("span");
-  meta.className = "settings-row-meta";
-
-  const name = document.createElement("span");
-  name.textContent = label;
-
-  const output = document.createElement("output");
-  output.dataset.settingValue = key;
-  output.textContent = `${value}${unit}`;
-
-  meta.append(name, output);
-
-  const controls = document.createElement("span");
-  controls.className = "settings-stepper";
-
-  const decrement = renderSettingStepButton(key, -1, min, max, unit);
-  const valueText = document.createElement("span");
-  valueText.className = "settings-stepper-value";
-  valueText.textContent = String(value);
-  const increment = renderSettingStepButton(key, 1, min, max, unit);
-
-  controls.append(decrement, valueText, increment);
-  row.append(meta, controls);
-  return row;
-}
-
-function renderSettingStepButton(
-  key: keyof DesktopSettings,
-  step: number,
-  min: number,
-  max: number,
-  unit: string
-) {
-  const button = document.createElement("button");
-  button.type = "button";
-  button.textContent = step > 0 ? "+" : "-";
-  button.dataset.settingStep = String(step);
-  button.dataset.settingKey = key;
-  button.dataset.settingMin = String(min);
-  button.dataset.settingMax = String(max);
-  button.dataset.settingUnit = unit;
-  return button;
-}
-
 export function renderContextMenu(options: {
   x: number;
   y: number;
-  items: Array<{ action: DesktopContextMenuAction; label: string; disabled?: boolean }>;
+  items: Array<{ action: DesktopContextMenuAction; label: string; disabled?: boolean; checked?: boolean }>;
 }) {
   const menu = document.createElement("div");
   menu.className = "context-menu";
@@ -408,11 +368,80 @@ export function renderContextMenu(options: {
   options.items.forEach((item) => {
     const button = document.createElement("button");
     button.type = "button";
-    button.textContent = item.label;
     button.dataset.contextAction = item.action;
     button.disabled = Boolean(item.disabled);
+
+    if (item.checked) {
+      button.classList.add("is-checked");
+    }
+
+    button.textContent = item.checked ? `✓ ${item.label}` : item.label;
     menu.append(button);
   });
 
   return menu;
+}
+
+export function renderRatioDialog(options: {
+  x: number;
+  y: number;
+  columns: number;
+  rows: number;
+}) {
+  const dialog = document.createElement("div");
+  dialog.className = "ratio-dialog";
+
+  const width = 200;
+  const height = 120;
+  dialog.style.left = `${Math.max(8, Math.min(window.innerWidth - width - 8, options.x))}px`;
+  dialog.style.top = `${Math.max(8, Math.min(window.innerHeight - height - 8, options.y))}px`;
+
+  const label = document.createElement("div");
+  label.className = "ratio-dialog-label";
+  label.textContent = "比例";
+
+  const inputRow = document.createElement("div");
+  inputRow.className = "ratio-dialog-inputs";
+
+  const colInput = document.createElement("input");
+  colInput.className = "ratio-dialog-input";
+  colInput.type = "number";
+  colInput.min = String(folderRatioMin);
+  colInput.max = String(folderRatioMax);
+  colInput.value = String(options.columns);
+  colInput.dataset.ratioColumns = "true";
+
+  const separator = document.createElement("span");
+  separator.className = "ratio-dialog-sep";
+  separator.textContent = "×";
+
+  const rowInput = document.createElement("input");
+  rowInput.className = "ratio-dialog-input";
+  rowInput.type = "number";
+  rowInput.min = String(folderRatioMin);
+  rowInput.max = String(folderRatioMax);
+  rowInput.value = String(options.rows);
+  rowInput.dataset.ratioRows = "true";
+
+  inputRow.append(colInput, separator, rowInput);
+
+  const actions = document.createElement("div");
+  actions.className = "ratio-dialog-actions";
+
+  const cancelBtn = document.createElement("button");
+  cancelBtn.type = "button";
+  cancelBtn.className = "ratio-dialog-cancel";
+  cancelBtn.textContent = "取消";
+  cancelBtn.dataset.ratioCancel = "true";
+
+  const confirmBtn = document.createElement("button");
+  confirmBtn.type = "button";
+  confirmBtn.className = "ratio-dialog-confirm";
+  confirmBtn.textContent = "确认";
+  confirmBtn.dataset.ratioConfirm = "true";
+
+  actions.append(cancelBtn, confirmBtn);
+
+  dialog.append(label, inputRow, actions);
+  return dialog;
 }
