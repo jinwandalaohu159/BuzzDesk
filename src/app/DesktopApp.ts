@@ -2414,7 +2414,7 @@ export class DesktopApp {
       })
     );
     requestAnimationFrame(() => {
-      this.contextMenuLayer.querySelector<HTMLInputElement>("[data-ratio-columns]")?.focus();
+      this.contextMenuLayer.querySelector<HTMLInputElement>("[data-ratio-rows]")?.focus();
     });
   }
 

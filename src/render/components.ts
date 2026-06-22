@@ -499,8 +499,8 @@ export function renderRatioDialog(options: {
   colInput.type = "number";
   colInput.min = String(folderRatioMin);
   colInput.max = String(folderRatioMax);
-  colInput.value = String(options.columns);
-  colInput.dataset.ratioColumns = "true";
+  colInput.value = String(options.rows);
+  colInput.dataset.ratioRows = "true";
 
   const separator = document.createElement("span");
   separator.className = "ratio-dialog-sep";
@@ -511,8 +511,8 @@ export function renderRatioDialog(options: {
   rowInput.type = "number";
   rowInput.min = String(folderRatioMin);
   rowInput.max = String(folderRatioMax);
-  rowInput.value = String(options.rows);
-  rowInput.dataset.ratioRows = "true";
+  rowInput.value = String(options.columns);
+  rowInput.dataset.ratioColumns = "true";
 
   inputRow.append(colInput, separator, rowInput);
 
