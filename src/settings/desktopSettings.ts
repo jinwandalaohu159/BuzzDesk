@@ -1,7 +1,15 @@
-import type { DesktopLayoutMode, DesktopNode, DesktopSettings, FolderAppearanceSettings, FolderCoverSize } from "../types";
+import type {
+  AppProcessPriority,
+  DesktopLayoutMode,
+  DesktopNode,
+  DesktopSettings,
+  FolderAppearanceSettings,
+  FolderCoverSize
+} from "../types";
 
 export const defaultDesktopSettings: DesktopSettings = {
   layoutMode: "auto",
+  appPriority: "aboveNormal",
   appIconSize: 60,
   desktopGapPx: 12,
   desktopPaddingX: 28,
@@ -46,6 +54,7 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
 
   return {
     layoutMode: normalizeLayoutMode(settings?.layoutMode),
+    appPriority: normalizeAppPriority(settings?.appPriority),
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),
     desktopGapPx: clampNumber(settings?.desktopGapPx, 0, 32, defaultDesktopSettings.desktopGapPx),
     desktopPaddingX: clampNumber(settings?.desktopPaddingX, 0, 160, defaultDesktopSettings.desktopPaddingX),
@@ -73,6 +82,10 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
 
 function normalizeLayoutMode(value: unknown): DesktopLayoutMode {
   return value === "free" ? "free" : "auto";
+}
+
+function normalizeAppPriority(value: unknown): AppProcessPriority {
+  return value === "high" || value === "normal" ? value : "aboveNormal";
 }
 
 export function normalizeFolderAppearance(

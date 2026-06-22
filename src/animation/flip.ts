@@ -1,10 +1,16 @@
-export function captureRects(root: ParentNode): Map<string, DOMRect> {
-  const rects = new Map<string, DOMRect>();
+interface FlipRect {
+  left: number;
+  top: number;
+}
+
+export function captureRects(root: ParentNode): Map<string, FlipRect> {
+  const rects = new Map<string, FlipRect>();
+  const rootRect = root instanceof HTMLElement ? root.getBoundingClientRect() : { left: 0, top: 0 };
 
   root.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
     const id = element.dataset.nodeId;
     if (id) {
-      rects.set(id, element.getBoundingClientRect());
+      rects.set(id, layoutRectForElement(element, rootRect));
     }
   });
 
@@ -16,8 +22,9 @@ interface FlipOptions {
   skipNewIds?: Set<string>;
 }
 
-export function playFlip(root: ParentNode, before: Map<string, DOMRect>, options: FlipOptions = {}) {
+export function playFlip(root: ParentNode, before: Map<string, FlipRect>, options: FlipOptions = {}) {
   requestAnimationFrame(() => {
+    const rootRect = root instanceof HTMLElement ? root.getBoundingClientRect() : { left: 0, top: 0 };
     root.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
       const id = element.dataset.nodeId;
       if (!id || element.classList.contains("is-dragging")) {
@@ -45,7 +52,7 @@ export function playFlip(root: ParentNode, before: Map<string, DOMRect>, options
         return;
       }
 
-      const next = element.getBoundingClientRect();
+      const next = layoutRectForElement(element, rootRect);
       const dx = previous.left - next.left;
       const dy = previous.top - next.top;
 
@@ -65,6 +72,31 @@ export function playFlip(root: ParentNode, before: Map<string, DOMRect>, options
       );
     });
   });
+}
+
+function layoutRectForElement(element: HTMLElement, rootRect: Pick<DOMRect, "left" | "top">): FlipRect {
+  const transform = parseTranslate3d(element.style.transform);
+  if (!transform) {
+    const rect = element.getBoundingClientRect();
+    return { left: rect.left, top: rect.top };
+  }
+
+  return {
+    left: rootRect.left + transform.x,
+    top: rootRect.top + transform.y
+  };
+}
+
+function parseTranslate3d(transform: string) {
+  const match = /translate3d\((-?\d+(?:\.\d+)?)px,\s*(-?\d+(?:\.\d+)?)px,\s*0\)/.exec(transform);
+  if (!match) {
+    return null;
+  }
+
+  return {
+    x: Number(match[1]),
+    y: Number(match[2])
+  };
 }
 
 function cancelElementAnimations(element: HTMLElement) {

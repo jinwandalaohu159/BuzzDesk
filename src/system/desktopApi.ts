@@ -1,4 +1,10 @@
-import type { AppNode, DesktopDiagnostics, DesktopSourceItem, NativeContextMenuResult } from "../types";
+import type {
+  AppNode,
+  AppProcessPriority,
+  DesktopDiagnostics,
+  DesktopSourceItem,
+  NativeContextMenuResult
+} from "../types";
 import { applyCachedIcons, rememberIconImages } from "./iconCache";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
@@ -240,6 +246,20 @@ export async function listenForSettingsRequests(callback: () => void) {
   } catch (error) {
     console.warn("Unable to listen for tray settings requests", error);
     return () => {};
+  }
+}
+
+export async function setAppProcessPriority(priority: AppProcessPriority) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info("Set app process priority", priority);
+    return;
+  }
+
+  try {
+    await invoke("set_app_process_priority", { priority });
+  } catch (error) {
+    console.warn("Unable to set app process priority", error);
   }
 }
 

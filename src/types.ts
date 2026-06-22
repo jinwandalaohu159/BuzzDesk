@@ -2,6 +2,7 @@ export type DesktopItemKind = "app" | "file" | "directory" | "system";
 
 export type FolderCoverSize = "small" | "medium" | "large";
 export type DesktopLayoutMode = "auto" | "free";
+export type AppProcessPriority = "normal" | "aboveNormal" | "high";
 
 export interface DesktopPosition {
   x: number;
@@ -57,6 +58,7 @@ export type DesktopContextMenuAction =
 
 export interface DesktopSettings {
   layoutMode: DesktopLayoutMode;
+  appPriority: AppProcessPriority;
   appIconSize: number;
   desktopGapPx: number;
   desktopPaddingX: number;

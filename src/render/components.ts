@@ -23,16 +23,19 @@ interface FolderOpenOrigin {
   scale: number;
 }
 
-interface FolderLayerRenderOptions {
-  editing: boolean;
+interface FolderPageRenderOptions {
   renamingChildId: string | null;
   selectedChildId: string | null;
   openingIds: ReadonlySet<string>;
-  origin: FolderOpenOrigin | null;
   size: FolderPanelSize;
   page: number;
-  pageCount: number;
   pageSize: number;
+}
+
+interface FolderLayerRenderOptions extends FolderPageRenderOptions {
+  editing: boolean;
+  origin: FolderOpenOrigin | null;
+  pageCount: number;
   animate: boolean;
 }
 
@@ -129,6 +132,9 @@ export function renderFolderLayerContent(folder: FolderNode, options: FolderLaye
   if (options.pageCount > 1) {
     panel.classList.add("has-pages");
   }
+  if (options.animate) {
+    panel.classList.add("is-performance-animating");
+  }
   if (!options.animate) {
     panel.classList.add("is-static");
   }
@@ -178,31 +184,7 @@ export function renderFolderLayerContent(folder: FolderNode, options: FolderLaye
     items.style.gridTemplateRows = `repeat(${options.size.rows}, ${options.size.itemHeight}px)`;
     items.style.gridAutoRows = `${options.size.itemHeight}px`;
 
-    const pageStart = pageIndex * options.pageSize;
-    const pageChildren = folder.children.slice(pageStart, pageStart + options.pageSize);
-    pageChildren.forEach((child) => {
-      const item = document.createElement("div");
-      item.className = "folder-item";
-      if (options.selectedChildId === child.id) {
-        item.classList.add("is-selected");
-      }
-      if (options.openingIds.has(child.id)) {
-        item.classList.add("is-opening");
-      }
-      item.dataset.folderChildId = child.id;
-      item.dataset.parentFolderId = folder.id;
-      item.setAttribute("role", "button");
-      item.setAttribute("tabindex", pageIndex === options.page ? "0" : "-1");
-      item.setAttribute("aria-label", child.name);
-      item.append(renderIcon(child));
-
-      const label =
-        options.renamingChildId === child.id
-          ? renderFolderChildRenameInput(folder.id, child.id, child.name)
-          : renderTileName(child.name);
-      item.append(label);
-      items.append(item);
-    });
+    renderFolderPageItems(folder, items, pageIndex, options);
 
     pages.append(items);
   }
@@ -336,6 +318,7 @@ export function renderSettingsLayer(options: {
 
   controls.append(
     renderLayoutModeControl(settings.layoutMode),
+    renderAppPriorityControl(settings.appPriority),
     renderSettingControl("桌面图标", "appIconSize", settings.appIconSize, 48, 76, "px"),
     renderSettingControl("图标间距", "desktopGapPx", settings.desktopGapPx, 0, 32, "px"),
     renderSettingControl("左右边距", "desktopPaddingX", settings.desktopPaddingX, 0, 160, "px"),
@@ -347,6 +330,44 @@ export function renderSettingsLayer(options: {
 
   panel.append(controls);
   return [backdrop, panel];
+}
+
+function renderFolderPageItems(
+  folder: FolderNode,
+  pageElement: HTMLElement,
+  pageIndex: number,
+  options: FolderPageRenderOptions
+) {
+  const pageStart = pageIndex * options.pageSize;
+  const pageChildren = folder.children.slice(pageStart, pageStart + options.pageSize);
+  const isCurrentPage = pageIndex === options.page;
+  const fragment = document.createDocumentFragment();
+
+  pageChildren.forEach((child) => {
+    const item = document.createElement("div");
+    item.className = "folder-item";
+    if (options.selectedChildId === child.id) {
+      item.classList.add("is-selected");
+    }
+    if (options.openingIds.has(child.id)) {
+      item.classList.add("is-opening");
+    }
+    item.dataset.folderChildId = child.id;
+    item.dataset.parentFolderId = folder.id;
+    item.setAttribute("role", "button");
+    item.setAttribute("tabindex", isCurrentPage ? "0" : "-1");
+    item.setAttribute("aria-label", child.name);
+    item.append(renderIcon(child));
+
+    const label =
+      options.renamingChildId === child.id
+        ? renderFolderChildRenameInput(folder.id, child.id, child.name)
+        : renderTileName(child.name);
+    item.append(label);
+    fragment.append(item);
+  });
+
+  pageElement.replaceChildren(fragment);
 }
 
 function renderLayoutModeControl(layoutMode: DesktopSettings["layoutMode"]) {
@@ -375,6 +396,42 @@ function renderLayoutModeControl(layoutMode: DesktopSettings["layoutMode"]) {
     button.type = "button";
     button.dataset.settingLayoutMode = option.value;
     button.classList.toggle("is-active", layoutMode === option.value);
+    button.textContent = option.label;
+    control.append(button);
+  });
+
+  row.append(meta, control);
+  return row;
+}
+
+function renderAppPriorityControl(priority: DesktopSettings["appPriority"]) {
+  const row = document.createElement("section");
+  row.className = "settings-row";
+
+  const meta = document.createElement("span");
+  meta.className = "settings-row-meta";
+
+  const name = document.createElement("span");
+  name.textContent = "\u5168\u5c40\u4f18\u5148\u7ea7";
+
+  const output = document.createElement("output");
+  output.textContent =
+    priority === "high" ? "\u9ad8" : priority === "normal" ? "\u6b63\u5e38" : "\u8f83\u9ad8";
+
+  meta.append(name, output);
+
+  const control = document.createElement("div");
+  control.className = "settings-segmented";
+
+  [
+    { value: "normal", label: "\u6b63\u5e38" },
+    { value: "aboveNormal", label: "\u8f83\u9ad8" },
+    { value: "high", label: "\u9ad8" }
+  ].forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.dataset.settingAppPriority = option.value;
+    button.classList.toggle("is-active", priority === option.value);
     button.textContent = option.label;
     control.append(button);
   });

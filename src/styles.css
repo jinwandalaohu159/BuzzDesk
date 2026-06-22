@@ -207,6 +207,21 @@ input {
   filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.32));
 }
 
+.desktop-shell.is-drag-active .desktop-tile::before,
+.desktop-shell.is-drag-active .folder-cover,
+.desktop-shell.is-drag-active .fallback-icon,
+.desktop-shell.is-drag-active .tile-rename {
+  backdrop-filter: none;
+}
+
+.desktop-shell.is-drag-active .app-icon,
+.desktop-shell.is-drag-active .icon-shell,
+.desktop-shell.is-drag-active .folder-cover,
+.desktop-shell.is-drag-active .merge-flight,
+.desktop-shell.is-drag-active .merge-target-flight {
+  filter: none;
+}
+
 .icon-shell {
   position: relative;
   align-self: center;
@@ -691,12 +706,12 @@ input {
   inset: 0;
   background: rgba(12, 16, 22, 0.2);
   opacity: 0;
-  animation: fade-in 220ms ease forwards;
+  will-change: opacity;
 }
 
 .folder-backdrop.is-static {
   opacity: 1;
-  animation: none;
+  will-change: auto;
 }
 
 .folder-panel {
@@ -714,14 +729,26 @@ input {
     rgba(28, 34, 44, 0.42);
   border: 1px solid rgba(255, 255, 255, 0.32);
   box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.42);
-  backdrop-filter: blur(28px) saturate(1.24);
+  backdrop-filter: blur(14px) saturate(1.14);
   opacity: 0;
-  transform: translate(calc(-50% + var(--folder-open-x, 0px)), calc(-50% + var(--folder-open-y, 0px))) scale(var(--folder-open-scale, .18));
+  transform:
+    translate3d(calc(-50% + var(--folder-open-x, 0px)), calc(-50% + var(--folder-open-y, 0px)), 0)
+    scale(var(--folder-open-scale, .18));
   transform-origin: center;
-  animation: folder-open 320ms cubic-bezier(.16,.96,.18,1) forwards;
+  animation: none;
   contain: layout paint style;
   will-change: transform, opacity;
   backface-visibility: hidden;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+
+.folder-panel.is-performance-animating {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.1)),
+    rgba(28, 34, 44, 0.42);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(14px) saturate(1.14);
+  will-change: transform, opacity;
 }
 
 .folder-panel.has-pages {
@@ -730,8 +757,13 @@ input {
 
 .folder-panel.is-static {
   opacity: 1;
-  transform: translate(-50%, -50%) scale(1);
+  transform: translate3d(-50%, -50%, 0) scale(1);
   animation: none;
+  will-change: auto;
+}
+
+.folder-panel.is-static.is-performance-animating {
+  will-change: transform, opacity;
 }
 
 .folder-title {
@@ -767,6 +799,7 @@ input {
   min-height: 0;
   overflow: hidden;
   display: block;
+  contain: layout paint style;
 }
 
 .folder-pages {
@@ -793,6 +826,7 @@ input {
   scrollbar-width: thin;
   scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
   touch-action: pan-y;
+  contain: layout paint style;
 }
 
 .folder-panel.is-page-dragging .folder-pages {
@@ -906,11 +940,17 @@ input {
   grid-template-rows: 64px 1fr;
   place-items: center;
   touch-action: none;
+  contain: layout paint style;
 }
 
 .folder-item .icon-shell {
   width: var(--folder-panel-icon-size, var(--desktop-icon-shell-size));
   height: var(--folder-panel-icon-size, var(--desktop-icon-shell-size));
+}
+
+.folder-item .tile-name {
+  align-self: start;
+  transform: translate3d(0, 2px, 0);
 }
 
 .folder-item:hover {
@@ -1172,19 +1212,6 @@ input {
 @keyframes fade-in {
   to {
     opacity: 1;
-  }
-}
-
-@keyframes folder-open {
-  from {
-    opacity: 0;
-    transform:
-      translate(calc(-50% + var(--folder-open-x, 0px)), calc(-50% + var(--folder-open-y, 0px)))
-      scale(var(--folder-open-scale, .18));
-  }
-  to {
-    opacity: 1;
-    transform: translate(-50%, -50%) scale(1);
   }
 }
 

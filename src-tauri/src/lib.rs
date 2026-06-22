@@ -115,6 +115,11 @@ fn show_desktop_item_properties(launch_id: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn set_app_process_priority(priority: String) -> Result<(), String> {
+    platform::set_app_process_priority(&priority)
+}
+
+#[tauri::command]
 fn show_native_item_context_menu(
     app: AppHandle,
     launch_id: String,
@@ -339,6 +344,7 @@ pub fn run() {
             rename_desktop_item,
             delete_desktop_item,
             show_desktop_item_properties,
+            set_app_process_priority,
             show_native_item_context_menu,
             show_native_desktop_context_menu,
             hide_native_desktop_icons,
@@ -513,6 +519,10 @@ mod platform {
         Ok(())
     }
 
+    pub fn set_app_process_priority(_priority: &str) -> Result<(), String> {
+        Ok(())
+    }
+
     pub fn set_native_desktop_icons_visible(_visible: bool) -> Result<(), String> {
         Ok(())
     }
@@ -588,6 +598,10 @@ mod platform {
     };
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
     use windows::Win32::System::Ole::CF_HDROP;
+    use windows::Win32::System::Threading::{
+        GetCurrentProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS,
+        NORMAL_PRIORITY_CLASS,
+    };
     use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::{
         Common::{ITEMIDLIST, STRRET},
@@ -1440,6 +1454,20 @@ mod platform {
             let _ = ShowWindow(hwnd, if visible { SW_SHOW } else { SW_HIDE });
         }
         Ok(())
+    }
+
+    pub fn set_app_process_priority(priority: &str) -> Result<(), String> {
+        let priority_class = match priority {
+            "normal" => NORMAL_PRIORITY_CLASS,
+            "aboveNormal" => ABOVE_NORMAL_PRIORITY_CLASS,
+            "high" => HIGH_PRIORITY_CLASS,
+            _ => return Err(format!("unsupported process priority: {priority}")),
+        };
+
+        unsafe {
+            SetPriorityClass(GetCurrentProcess(), priority_class)
+                .map_err(|error| format!("failed to set process priority: {error}"))
+        }
     }
 
     pub fn attach_window_to_desktop(hwnd: HWND, show: bool) -> Result<(), String> {

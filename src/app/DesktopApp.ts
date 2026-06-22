@@ -1,6 +1,6 @@
 import { captureRects, playFlip } from "../animation/flip";
 import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../animation/drag";
-import { playFolderClose } from "../animation/folderPanel";
+import { playFolderClose, playFolderOpen } from "../animation/folderPanel";
 import { playFolderBirth, playMergeGroupIntoTarget, playMergeIntoTarget } from "../animation/merge";
 import { desktopFallbackMenuItems, itemFallbackMenuItems, folderContextMenuItems } from "./contextMenuModel";
 import { computeDesktopLayout, desktopIndexForPoint, panelSizeFor } from "../layout/grid";
@@ -40,6 +40,7 @@ import {
   pasteDesktopItems,
   renameDesktopItem,
   scanDesktopItems,
+  setAppProcessPriority,
   showDesktopItemProperties,
   showNativeDesktopContextMenu,
   showNativeItemContextMenu
@@ -48,6 +49,7 @@ import { desktopViewport } from "../system/desktopViewport";
 import { warmIconImages } from "../system/iconWarmup";
 import type {
   AppNode,
+  AppProcessPriority,
   DesktopContextMenuAction,
   DesktopNode,
   DesktopPosition,
@@ -88,6 +90,9 @@ interface ActiveDrag {
   targetElement: HTMLElement | null;
   targetSnapshots: DragTargetSnapshot[];
   groupItems: DragGroupItem[];
+  lastTransformStyle: string;
+  lastPullX: number;
+  lastPullY: number;
   committing: boolean;
 }
 
@@ -98,6 +103,7 @@ interface DragGroupItem {
   baseY: number;
   width: number;
   height: number;
+  lastTransformStyle?: string;
 }
 
 interface DragTargetSnapshot {
@@ -231,6 +237,7 @@ export class DesktopApp {
       }
 
       this.store.hydrate(items);
+      void this.applyAppPrioritySetting(this.store.getSettings().appPriority);
       this.desktopScanSignature = desktopItemsSignature(items);
 
       const desktopLayerAttached = await attachDesktopLayerWindow();
@@ -425,6 +432,17 @@ export class DesktopApp {
     );
     this.bindFolderNameInput(folder);
     this.bindFolderChildRenameInput(folder);
+    if (animate) {
+      const panel = this.folderLayer.querySelector<HTMLElement>(".folder-panel");
+      const backdrop = this.folderLayer.querySelector<HTMLElement>(".folder-backdrop");
+      if (panel) {
+        void playFolderOpen(panel, backdrop, this.folderOpenOrigin).then(() => {
+          if (this.openFolderId === folder.id && !this.folderClosing && this.folderLayer.contains(panel)) {
+            this.settleFolderAnimation(panel, backdrop);
+          }
+        });
+      }
+    }
   }
 
   private syncOpenFolderTileState(folderId: string | null) {
@@ -464,6 +482,14 @@ export class DesktopApp {
     requestAnimationFrame(() => {
       input.focus();
       input.select();
+    });
+  }
+
+  private settleFolderAnimation(panel: HTMLElement, backdrop: HTMLElement | null) {
+    panel.classList.add("is-static");
+    backdrop?.classList.add("is-static");
+    requestAnimationFrame(() => {
+      panel.classList.remove("is-performance-animating");
     });
   }
 
@@ -1151,6 +1177,9 @@ export class DesktopApp {
       targetElement: null,
       targetSnapshots: [],
       groupItems,
+      lastTransformStyle: "",
+      lastPullX: 0,
+      lastPullY: 0,
       committing: false
     };
 
@@ -1217,6 +1246,7 @@ export class DesktopApp {
         this.promoteFolderDrag(drag);
       }
       drag.started = true;
+      this.root.classList.add("is-drag-active");
       drag.targetSnapshots = this.captureMergeTargets(drag);
       if (this.isDesktopGroupDrag(drag)) {
         drag.groupItems.forEach((item) => item.element.classList.add("is-dragging"));
@@ -1377,6 +1407,7 @@ export class DesktopApp {
       const didAutoScroll = this.autoScrollDrag(active);
       if (didAutoScroll) {
         active.targetSnapshots = this.captureMergeTargets(active);
+        active.targetRect = null;
       }
 
       if (this.isDesktopGroupDrag(active)) {
@@ -1407,10 +1438,9 @@ export class DesktopApp {
       });
 
       if (magneticTarget && active.targetElement) {
-        active.targetElement.style.setProperty("--merge-pull-x", `${transform.targetPullX}px`);
-        active.targetElement.style.setProperty("--merge-pull-y", `${transform.targetPullY}px`);
+        this.writeMergePull(active, transform.targetPullX, transform.targetPullY);
       }
-      active.element.style.transform = toTransformStyle(transform);
+      this.writeDragTransform(active, toTransformStyle(transform));
 
       if (didAutoScroll && this.drag === active) {
         this.scheduleDragFrame();
@@ -1433,11 +1463,11 @@ export class DesktopApp {
     dy = clampScroll(dy + offsetY, metrics.paddingY - minY, viewport.height - metrics.paddingY - maxY) - offsetY;
 
     drag.groupItems.forEach((item) => {
-      item.element.style.transform = toTransformStyle({
+      this.writeGroupDragTransform(item, toTransformStyle({
         x: item.baseX + dx + offsetX,
         y: item.baseY + dy + offsetY,
         scale: 1.025
-      });
+      }));
     });
   }
 
@@ -1773,21 +1803,23 @@ export class DesktopApp {
       return;
     }
 
-    const hit = this.hitTestMergeTarget(x, y, drag.targetSnapshots);
-    const target = this.findNode(hit?.id ?? "");
+    if (drag.targetRect && pointInMergeRect(x, y, drag.targetRect)) {
+      return;
+    }
 
-    if (!target) {
+    const hit = this.hitTestMergeTarget(x, y, drag.targetSnapshots);
+
+    if (!hit) {
       this.setMergeTarget(null);
       return;
     }
 
-    if (target.type === "folder" || target.type === "item") {
-      this.setMergeTarget(target.id, hit?.rect ?? null);
-    }
+    this.setMergeTarget(hit.id, hit.rect);
   }
 
   private captureMergeTargets(drag: ActiveDrag): DragTargetSnapshot[] {
     const sourceIds = this.desktopDragSourceIds(drag);
+    const nodes = this.store.getNodes();
     const source =
       drag.source.type === "desktop"
         ? sourceIds.map((id) => this.findNode(id))
@@ -1797,6 +1829,15 @@ export class DesktopApp {
     }
 
     const excludedIds = new Set(sourceIds);
+    if (drag.source.type === "folder") {
+      excludedIds.add(drag.source.folderId);
+    }
+
+    const targetIds = new Set(
+      nodes
+        .filter((node) => !excludedIds.has(node.id) && (node.type === "item" || node.type === "folder"))
+        .map((node) => node.id)
+    );
     const snapshots: DragTargetSnapshot[] = [];
     this.grid.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
       const id = element.dataset.nodeId;
@@ -1804,16 +1845,7 @@ export class DesktopApp {
         return;
       }
 
-      if (excludedIds.has(id)) {
-        return;
-      }
-
-      if (drag.source.type === "folder" && id === drag.source.folderId) {
-        return;
-      }
-
-      const target = this.findNode(id);
-      if (!target || (target.type !== "item" && target.type !== "folder")) {
+      if (!targetIds.has(id)) {
         return;
       }
 
@@ -1838,7 +1870,7 @@ export class DesktopApp {
 
   private hitTestMergeTarget(x: number, y: number, snapshots: DragTargetSnapshot[]) {
     let best: DragTargetSnapshot | null = null;
-    let bestDistance = Number.POSITIVE_INFINITY;
+    let bestDistanceSquared = Number.POSITIVE_INFINITY;
 
     for (const snapshot of snapshots) {
       const rect = snapshot.rect;
@@ -1855,10 +1887,10 @@ export class DesktopApp {
 
       const centerX = rect.left + rect.width / 2;
       const centerY = rect.top + rect.height / 2;
-      const distance = Math.hypot(x - centerX, y - centerY);
-      if (distance < bestDistance) {
+      const distanceSquared = (x - centerX) ** 2 + (y - centerY) ** 2;
+      if (distanceSquared < bestDistanceSquared) {
         best = snapshot;
-        bestDistance = distance;
+        bestDistanceSquared = distanceSquared;
       }
     }
 
@@ -1867,7 +1899,14 @@ export class DesktopApp {
 
   private setMergeTarget(targetId: string | null, targetRect: DOMRect | null = null) {
     const drag = this.drag;
-    if (!drag || drag.targetId === targetId) {
+    if (!drag) {
+      return;
+    }
+
+    if (drag.targetId === targetId) {
+      if (targetRect) {
+        drag.targetRect = targetRect;
+      }
       return;
     }
 
@@ -1882,10 +1921,45 @@ export class DesktopApp {
 
     const target = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(targetId)}"]`);
     target?.classList.add("is-merge-target");
+    drag.lastPullX = 0;
+    drag.lastPullY = 0;
     target?.style.setProperty("--merge-pull-x", "0px");
     target?.style.setProperty("--merge-pull-y", "0px");
     drag.targetRect = targetRect ?? target?.getBoundingClientRect() ?? null;
     drag.targetElement = target ?? null;
+  }
+
+  private writeMergePull(drag: ActiveDrag, x: number, y: number) {
+    if (!drag.targetElement) {
+      return;
+    }
+
+    if (Math.abs(x - drag.lastPullX) < 0.2 && Math.abs(y - drag.lastPullY) < 0.2) {
+      return;
+    }
+
+    drag.lastPullX = x;
+    drag.lastPullY = y;
+    drag.targetElement.style.setProperty("--merge-pull-x", `${roundFrameValue(x)}px`);
+    drag.targetElement.style.setProperty("--merge-pull-y", `${roundFrameValue(y)}px`);
+  }
+
+  private writeDragTransform(drag: ActiveDrag, transform: string) {
+    if (drag.lastTransformStyle === transform) {
+      return;
+    }
+
+    drag.lastTransformStyle = transform;
+    drag.element.style.transform = transform;
+  }
+
+  private writeGroupDragTransform(item: DragGroupItem, transform: string) {
+    if (item.lastTransformStyle === transform) {
+      return;
+    }
+
+    item.lastTransformStyle = transform;
+    item.element.style.transform = transform;
   }
 
   private async commitMerge(targetId: string) {
@@ -2009,6 +2083,8 @@ export class DesktopApp {
   }
 
   private clearDragVisualState(drag: ActiveDrag) {
+    this.root.classList.remove("is-drag-active");
+
     if (this.isDesktopGroupDrag(drag)) {
       drag.groupItems.forEach((item) => {
         item.element.classList.remove("is-dragging");
@@ -2085,16 +2161,26 @@ export class DesktopApp {
     const reset = (event.target as HTMLElement).closest("[data-settings-reset]");
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
     const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
+    const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
 
     if (reset) {
       this.cancelSettingsPreview();
       this.store.updateSettings(defaultDesktopSettings);
+      void this.applyAppPrioritySetting(defaultDesktopSettings.appPriority);
       return;
     }
 
     if (layoutModeButton?.dataset.settingLayoutMode === "auto" || layoutModeButton?.dataset.settingLayoutMode === "free") {
       this.cancelSettingsPreview();
       this.switchDesktopLayoutMode(layoutModeButton.dataset.settingLayoutMode);
+      return;
+    }
+
+    if (isAppProcessPriority(priorityButton?.dataset.settingAppPriority)) {
+      this.cancelSettingsPreview();
+      const appPriority = priorityButton.dataset.settingAppPriority;
+      this.store.updateSettings({ appPriority });
+      void this.applyAppPrioritySetting(appPriority);
       return;
     }
 
@@ -2254,6 +2340,10 @@ export class DesktopApp {
     }
 
     this.renderWithFlip();
+  }
+
+  private async applyAppPrioritySetting(priority: AppProcessPriority) {
+    await setAppProcessPriority(priority);
   }
 
   private seedFreeLayoutPositions() {
@@ -2590,18 +2680,14 @@ export class DesktopApp {
     const pages = this.folderLayer.querySelector<HTMLElement>(".folder-pages");
     pages?.style.setProperty("--folder-page-offset", `${page * -100}%`);
 
-    this.folderLayer.querySelectorAll<HTMLElement>(".folder-items").forEach((items) => {
-      const isCurrent = Number(items.dataset.folderPage) === page;
-      items.classList.toggle("is-current-page", isCurrent);
-      if (isCurrent) {
-        items.removeAttribute("aria-hidden");
-      } else {
-        items.setAttribute("aria-hidden", "true");
-      }
-      items.querySelectorAll<HTMLElement>("[data-folder-child-id]").forEach((item) => {
-        item.tabIndex = isCurrent ? 0 : -1;
-      });
-    });
+    const previousPage = this.folderLayer.querySelector<HTMLElement>(".folder-items.is-current-page");
+    const currentPage = this.folderLayer.querySelector<HTMLElement>(`.folder-items[data-folder-page="${page}"]`);
+    if (previousPage && previousPage !== currentPage) {
+      this.updateFolderPageAccessibility(previousPage, false);
+    }
+    if (currentPage) {
+      this.updateFolderPageAccessibility(currentPage, true);
+    }
 
     this.folderLayer.querySelectorAll<HTMLElement>("[data-folder-page-index]").forEach((dot) => {
       const isCurrent = Number(dot.dataset.folderPageIndex) === page;
@@ -2611,6 +2697,19 @@ export class DesktopApp {
       } else {
         dot.removeAttribute("aria-current");
       }
+    });
+  }
+
+  private updateFolderPageAccessibility(page: HTMLElement, isCurrent: boolean) {
+    page.classList.toggle("is-current-page", isCurrent);
+    if (isCurrent) {
+      page.removeAttribute("aria-hidden");
+    } else {
+      page.setAttribute("aria-hidden", "true");
+    }
+
+    page.querySelectorAll<HTMLElement>("[data-folder-child-id]").forEach((item) => {
+      item.tabIndex = isCurrent ? 0 : -1;
     });
   }
 
@@ -2626,34 +2725,33 @@ export class DesktopApp {
       return;
     }
 
-    this.refreshFolderCloseOrigin(panel);
+    const origin = this.refreshFolderCloseOrigin() ?? this.folderOpenOrigin;
     this.editingFolder = false;
     this.folderClosing = true;
     this.folderLayer.classList.add("is-closing");
+    panel.classList.add("is-performance-animating");
 
     try {
-      await playFolderClose(panel, backdrop);
+      await playFolderClose(panel, backdrop, origin);
     } finally {
       this.folderClosing = false;
       this.closeFolderNow();
     }
   }
 
-  private refreshFolderCloseOrigin(panel: HTMLElement) {
+  private refreshFolderCloseOrigin() {
     const folder = this.getOpenFolder();
     if (!folder) {
-      return;
+      return null;
     }
 
     const origin = this.currentFolderOpenOrigin(folder);
     if (!origin) {
-      return;
+      return null;
     }
 
     this.folderOpenOrigin = origin;
-    panel.style.setProperty("--folder-open-x", `${origin.x}px`);
-    panel.style.setProperty("--folder-open-y", `${origin.y}px`);
-    panel.style.setProperty("--folder-open-scale", `${origin.scale}`);
+    return origin;
   }
 
   private closeContextMenu() {
@@ -3722,7 +3820,9 @@ function isNavigationKey(key: string) {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
 }
 
-function isDesktopSettingKey(key: string): key is Exclude<keyof DesktopSettings, "layoutMode"> {
+type NumericDesktopSettingKey = Exclude<keyof DesktopSettings, "layoutMode" | "appPriority">;
+
+function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {
   return (
     key === "appIconSize" ||
     key === "desktopGapPx" ||
@@ -3732,6 +3832,10 @@ function isDesktopSettingKey(key: string): key is Exclude<keyof DesktopSettings,
     key === "folderCoverMediumPx" ||
     key === "folderCoverLargePx"
   );
+}
+
+function isAppProcessPriority(value: unknown): value is AppProcessPriority {
+  return value === "normal" || value === "aboveNormal" || value === "high";
 }
 
 function clampScroll(value: number, min: number, max: number) {
@@ -3769,6 +3873,16 @@ function rectsOverlapWithMargin(
     a.y < b.y + b.height + margin &&
     a.y + a.height + margin > b.y
   );
+}
+
+function pointInMergeRect(x: number, y: number, rect: DOMRect) {
+  const slopX = Math.min(12, rect.width * 0.08);
+  const slopY = Math.min(12, rect.height * 0.08);
+  return x >= rect.left - slopX && x <= rect.right + slopX && y >= rect.top - slopY && y <= rect.bottom + slopY;
+}
+
+function roundFrameValue(value: number) {
+  return Math.round(value * 10) / 10;
 }
 
 function nextGridIndex(key: string, currentIndex: number, itemCount: number, columns: number) {

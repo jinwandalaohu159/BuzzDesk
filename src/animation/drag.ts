@@ -61,7 +61,7 @@ export function dragFrameTransform(input: DragFrameInput): DragFrameTransform {
 }
 
 export function toTransformStyle(transform: Pick<DragFrameTransform, "x" | "y" | "scale">) {
-  return `translate3d(${transform.x}px, ${transform.y}px, 0) scale(${transform.scale})`;
+  return `translate3d(${roundFrameValue(transform.x)}px, ${roundFrameValue(transform.y)}px, 0) scale(${roundFrameValue(transform.scale)})`;
 }
 
 export function dragAutoScrollDelta(
@@ -96,4 +96,8 @@ function edgeStrength(distance: number) {
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
+}
+
+function roundFrameValue(value: number) {
+  return Math.round(value * 10) / 10;
 }
