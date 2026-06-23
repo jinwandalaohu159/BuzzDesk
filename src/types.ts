@@ -3,7 +3,9 @@ export type DesktopItemKind = "app" | "file" | "directory" | "system";
 export type FolderCoverSize = "small" | "medium" | "large";
 export type DesktopLayoutMode = "auto" | "free";
 export type AppProcessPriority = "normal" | "aboveNormal" | "high";
-export type SettingsView = "main" | "layout" | "system";
+export type SettingsView = "main" | "layout" | "system" | "contextMenu";
+export type DesktopContextMenuPlacement = "main" | "more" | "hidden";
+export type DesktopContextMenuSource = "native" | "action";
 export type DesktopSystemIconId =
   | "myComputer"
   | "recycleBin"
@@ -56,12 +58,26 @@ export interface NativeContextMenuResult {
 }
 
 export interface NativeContextMenuItem {
+  key?: string | null;
   label: string;
+  verb?: string | null;
   commandId?: number | null;
   disabled?: boolean;
   checked?: boolean;
   separator?: boolean;
   submenu?: NativeContextMenuItem[];
+}
+
+export interface DesktopContextMenuLayoutItem {
+  key: string;
+  source: DesktopContextMenuSource;
+  placement: DesktopContextMenuPlacement;
+  order: number;
+  group: number;
+}
+
+export interface DesktopContextMenuSettings {
+  items: DesktopContextMenuLayoutItem[];
 }
 
 export type DesktopContextMenuAction =
@@ -84,6 +100,7 @@ export interface DesktopSettings {
   appPriority: AppProcessPriority;
   settingsDarkMode: boolean;
   systemIcons: DesktopSystemIconSettings;
+  contextMenu: DesktopContextMenuSettings;
   appIconSize: number;
   desktopGapPx: number;
   desktopPaddingX: number;

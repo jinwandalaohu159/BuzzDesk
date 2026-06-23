@@ -1,5 +1,8 @@
 import type {
   AppProcessPriority,
+  DesktopContextMenuLayoutItem,
+  DesktopContextMenuPlacement,
+  DesktopContextMenuSource,
   DesktopLayoutMode,
   DesktopNode,
   DesktopSettings,
@@ -37,6 +40,9 @@ export const defaultDesktopSettings: DesktopSettings = {
   appPriority: "aboveNormal",
   settingsDarkMode: false,
   systemIcons: { ...defaultDesktopSystemIcons },
+  contextMenu: {
+    items: []
+  },
   appIconSize: 60,
   desktopGapPx: 12,
   desktopPaddingX: 28,
@@ -84,6 +90,7 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
     appPriority: normalizeAppPriority(settings?.appPriority),
     settingsDarkMode: settings?.settingsDarkMode === true,
     systemIcons: normalizeSystemIcons(settings?.systemIcons),
+    contextMenu: normalizeContextMenuSettings(settings?.contextMenu),
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),
     desktopGapPx: clampNumber(settings?.desktopGapPx, 0, 32, defaultDesktopSettings.desktopGapPx),
     desktopPaddingX: clampNumber(settings?.desktopPaddingX, 0, 160, defaultDesktopSettings.desktopPaddingX),
@@ -129,6 +136,48 @@ function normalizeSystemIcons(value: unknown): DesktopSystemIconSettings {
       source[id] === undefined ? defaultDesktopSystemIcons[id] : source[id] !== false
     ])
   ) as DesktopSystemIconSettings;
+}
+
+function normalizeContextMenuSettings(value: unknown): DesktopSettings["contextMenu"] {
+  if (!value || typeof value !== "object") {
+    return { items: [] };
+  }
+
+  const source = value as Partial<DesktopSettings["contextMenu"]>;
+  return {
+    items: Array.isArray(source.items)
+      ? source.items
+          .map(normalizeContextMenuLayoutItem)
+          .filter((item): item is DesktopContextMenuLayoutItem => Boolean(item))
+      : []
+  };
+}
+
+function normalizeContextMenuLayoutItem(value: unknown): DesktopContextMenuLayoutItem | null {
+  if (!value || typeof value !== "object") {
+    return null;
+  }
+
+  const item = value as Partial<DesktopContextMenuLayoutItem>;
+  if (typeof item.key !== "string" || !item.key) {
+    return null;
+  }
+
+  return {
+    key: item.key,
+    source: normalizeContextMenuSource(item.source),
+    placement: normalizeContextMenuPlacement(item.placement),
+    order: clampNumber(item.order, 0, 9999, 0),
+    group: clampNumber(item.group, 0, 99, 0)
+  };
+}
+
+function normalizeContextMenuSource(value: unknown): DesktopContextMenuSource {
+  return value === "native" ? "native" : "action";
+}
+
+function normalizeContextMenuPlacement(value: unknown): DesktopContextMenuPlacement {
+  return value === "more" || value === "hidden" ? value : "main";
 }
 
 export function desktopSystemIconIdFromNodeId(id: string): DesktopSystemIconId | null {

@@ -55,7 +55,9 @@ pub struct NativeContextMenuResult {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
 pub struct NativeContextMenuItem {
+    pub key: String,
     pub label: String,
+    pub verb: Option<String>,
     pub command_id: Option<u32>,
     pub disabled: bool,
     pub checked: bool,
@@ -1156,7 +1158,7 @@ mod platform {
         owner: HWND,
     ) -> Result<Vec<NativeContextMenuItem>, String> {
         let (context_menu, menu) = desktop_context_menu(owner)?;
-        let items = enumerate_native_context_menu(&context_menu, menu, 1);
+        let items = enumerate_native_context_menu(&context_menu, menu, 1, &[]);
         let _ = DestroyMenu(menu);
         Ok(items)
     }
@@ -1245,6 +1247,7 @@ mod platform {
         context_menu: &IContextMenu,
         menu: HMENU,
         depth: usize,
+        parent_path: &[String],
     ) -> Vec<NativeContextMenuItem> {
         if depth > 4 {
             return Vec::new();
@@ -1271,22 +1274,32 @@ mod platform {
             let disabled =
                 (info.fState & MFS_DISABLED) == MFS_DISABLED || (info.fState & MFS_GRAYED) == MFS_GRAYED;
             let checked = (info.fState & MFS_CHECKED) == MFS_CHECKED;
-            let submenu = if !info.hSubMenu.is_invalid() {
-                initialize_native_submenu(context_menu, info.hSubMenu, index);
-                enumerate_native_context_menu(context_menu, info.hSubMenu, depth + 1)
-            } else {
-                Vec::new()
-            };
             let label = native_menu_item_label(menu, index as u32);
             let command_id = if info.wID >= 1 && info.wID <= 0x7fff {
                 Some(info.wID - 1)
             } else {
                 None
             };
+            let verb = command_id.and_then(|id| context_menu_command_verb(context_menu, id as usize));
+            let key = native_context_menu_item_key(verb.as_deref(), &label, parent_path, index);
+            let mut child_path = parent_path.to_vec();
+            child_path.push(if label.is_empty() {
+                format!("item-{index}")
+            } else {
+                label.clone()
+            });
+            let submenu = if !info.hSubMenu.is_invalid() {
+                initialize_native_submenu(context_menu, info.hSubMenu, index);
+                enumerate_native_context_menu(context_menu, info.hSubMenu, depth + 1, &child_path)
+            } else {
+                Vec::new()
+            };
 
             if separator || !label.is_empty() || !submenu.is_empty() {
                 items.push(NativeContextMenuItem {
+                    key,
                     label,
+                    verb,
                     command_id,
                     disabled,
                     checked,
@@ -1383,6 +1396,59 @@ mod platform {
             .replace('\u{0}', "&")
             .trim()
             .to_string()
+    }
+
+    fn native_context_menu_item_key(
+        verb: Option<&str>,
+        label: &str,
+        parent_path: &[String],
+        index: i32,
+    ) -> String {
+        if let Some(verb) = verb {
+            if !verb.is_empty() {
+                return format!("native:verb:{}", stable_menu_key_part(verb));
+            }
+        }
+
+        let mut parts: Vec<String> = parent_path
+            .iter()
+            .filter(|part| !part.is_empty())
+            .map(|part| stable_menu_key_part(part))
+            .collect();
+        if !label.is_empty() {
+            parts.push(stable_menu_key_part(label));
+        }
+        if parts.is_empty() {
+            parts.push(format!("item-{index}"));
+        }
+
+        format!("native:label:{}", parts.join("/"))
+    }
+
+    fn stable_menu_key_part(value: &str) -> String {
+        let key: String = value
+            .trim()
+            .to_lowercase()
+            .chars()
+            .map(|character| {
+                if character.is_alphanumeric() {
+                    character
+                } else {
+                    '-'
+                }
+            })
+            .collect();
+        let compact = key
+            .split('-')
+            .filter(|part| !part.is_empty())
+            .collect::<Vec<_>>()
+            .join("-");
+
+        if compact.is_empty() {
+            "item".to_string()
+        } else {
+            compact
+        }
     }
 
     fn collapse_menu_separators(items: Vec<NativeContextMenuItem>) -> Vec<NativeContextMenuItem> {

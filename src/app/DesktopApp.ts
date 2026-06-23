@@ -2,7 +2,16 @@ import { captureRects, playFlip } from "../animation/flip";
 import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../animation/drag";
 import { playFolderClose, playFolderOpen } from "../animation/folderPanel";
 import { playFolderBirth, playMergeGroupIntoTarget, playMergeIntoTarget } from "../animation/merge";
-import { desktopMenuItems, itemFallbackMenuItems, folderContextMenuItems } from "./contextMenuModel";
+import {
+  desktopContextMenuSettingsItems,
+  desktopMenuItems,
+  itemFallbackMenuItems,
+  folderContextMenuItems,
+  reorderContextMenuItem,
+  resetContextMenuSettings,
+  toggleContextMenuSeparator,
+  updateContextMenuItemPlacement
+} from "./contextMenuModel";
 import { computeDesktopLayout, desktopIndexForPoint, panelSizeFor } from "../layout/grid";
 import {
   renderContextMenu,
@@ -55,6 +64,7 @@ import type {
   AppNode,
   AppProcessPriority,
   DesktopContextMenuAction,
+  DesktopContextMenuPlacement,
   DesktopNode,
   DesktopPosition,
   DesktopSettings,
@@ -160,6 +170,25 @@ interface FolderOpenOrigin {
   scale: number;
 }
 
+interface SettingsContextMenuDropTarget {
+  list: HTMLElement;
+  row: HTMLElement | null;
+  targetKey: string | null;
+  position: "before" | "after" | "end";
+}
+
+interface SettingsContextMenuDragState {
+  key: string;
+  placement: Exclude<DesktopContextMenuPlacement, "hidden">;
+  pointerId: number;
+  startX: number;
+  startY: number;
+  startRect: DOMRect;
+  row: HTMLElement;
+  active: boolean;
+  lastTarget: SettingsContextMenuDropTarget | null;
+}
+
 export class DesktopApp {
   private readonly store = new DesktopStore();
   private readonly root: HTMLElement;
@@ -180,8 +209,11 @@ export class DesktopApp {
   private folderClosing = false;
   private settingsOpen = false;
   private settingsView: SettingsView = "main";
+  private renderedSettingsView: SettingsView | null = null;
   private settingsSystemIconAddOpen = false;
   private settingsPriorityMenuOpen = false;
+  private settingsContextMenuDrag: SettingsContextMenuDragState | null = null;
+  private settingsContextMenuPaintedDrop: SettingsContextMenuDropTarget | null = null;
   private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
   private renamingId: string | null = null;
@@ -332,6 +364,7 @@ export class DesktopApp {
     this.folderLayer.addEventListener("pointerdown", (event) => this.onFolderPointerDown(event));
     this.folderLayer.addEventListener("contextmenu", (event) => this.onFolderContextMenu(event));
     this.settingsLayer.addEventListener("click", (event) => this.onSettingsClick(event));
+    this.settingsLayer.addEventListener("pointerdown", (event) => this.onSettingsContextMenuPointerDown(event));
     this.settingsLayer.addEventListener("input", (event) => this.onSettingsInput(event));
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
     this.settingsLayer.addEventListener("scroll", () => this.renderSettingsPriorityMenu(), true);
@@ -551,11 +584,16 @@ export class DesktopApp {
 
   private renderSettingsLayer() {
     const wasOpen = this.settingsLayer.classList.contains("is-open");
+    const preserveScroll = wasOpen && this.renderedSettingsView === this.settingsView;
+    const previousControls = this.settingsLayer.querySelector<HTMLElement>(".settings-controls");
+    const scrollLeft = preserveScroll ? previousControls?.scrollLeft ?? 0 : 0;
+    const scrollTop = preserveScroll ? previousControls?.scrollTop ?? 0 : 0;
     this.settingsLayer.classList.toggle("is-open", this.settingsOpen);
 
     if (!this.settingsOpen) {
       this.settingsPriorityMenuOpen = false;
       this.settingsSystemIconAddOpen = false;
+      this.renderedSettingsView = null;
       this.settingsLayer.classList.remove("is-settings-dark");
       this.settingsLayer.replaceChildren();
       return;
@@ -570,9 +608,20 @@ export class DesktopApp {
         view: this.settingsView,
         systemIconItems: this.store.getScannedItems().filter((item) => desktopSystemIconIdFromNodeId(item.id)),
         systemIconAddOpen: this.settingsSystemIconAddOpen,
+        contextMenuItems: this.contextMenuSettingsItems(),
         animate: !wasOpen
       })
     );
+    this.renderedSettingsView = this.settingsView;
+    const nextControls = this.settingsLayer.querySelector<HTMLElement>(".settings-controls");
+    if (nextControls) {
+      nextControls.scrollLeft = scrollLeft;
+      nextControls.scrollTop = scrollTop;
+      requestAnimationFrame(() => {
+        nextControls.scrollLeft = scrollLeft;
+        nextControls.scrollTop = scrollTop;
+      });
+    }
     this.renderSettingsPriorityMenu();
   }
 
@@ -606,6 +655,13 @@ export class DesktopApp {
     this.settingsLayer.append(popover);
   }
 
+  private contextMenuSettingsItems() {
+    return desktopContextMenuSettingsItems(
+      this.cachedDesktopNativeMenuItems ?? [],
+      this.store.getSettings().contextMenu
+    );
+  }
+
   private renderContextMenu() {
     if (this.ratioDialogTargetId) {
       this.contextMenuLayer.classList.add("is-open");
@@ -623,7 +679,7 @@ export class DesktopApp {
     let items;
 
     if (this.contextMenu.type === "desktop") {
-      items = desktopMenuItems(this.contextMenu.nativeItems);
+      items = desktopMenuItems(this.contextMenu.nativeItems, this.store.getSettings().contextMenu);
     } else if (node?.type === "folder") {
       items = folderContextMenuItems(node.appearance.folderCoverSize);
     } else {
@@ -2297,6 +2353,12 @@ export class DesktopApp {
   }
 
   private onSettingsClick(event: MouseEvent) {
+    if (this.consumeSuppressedClick()) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     const close = (event.target as HTMLElement).closest("[data-settings-close]");
     const reset = (event.target as HTMLElement).closest("[data-settings-reset]");
     const viewButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-settings-view]");
@@ -2306,6 +2368,9 @@ export class DesktopApp {
     const systemIconAddTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add-trigger]");
     const systemIconAddButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add]");
     const systemIconRemoveButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-remove]");
+    const contextMenuPlacementButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-placement]");
+    const contextMenuSeparatorButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-separator]");
+    const contextMenuResetButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-reset]");
     const priorityTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-priority-trigger]");
     const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
     const priorityPopover = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-priority-popover]");
@@ -2333,6 +2398,8 @@ export class DesktopApp {
       this.renderSettingsLayer();
       if (nextSettingsView === "system") {
         this.scheduleFullDesktopItemLoad(120);
+      } else if (nextSettingsView === "contextMenu") {
+        void this.refreshContextMenuSettingsPool();
       }
       return;
     }
@@ -2376,6 +2443,45 @@ export class DesktopApp {
         this.settingsPriorityMenuOpen = false;
         this.setSystemIconVisibility(systemIconId, false);
       }
+      return;
+    }
+
+    if (contextMenuPlacementButton) {
+      const key = contextMenuPlacementButton.dataset.menuKey;
+      const placement = contextMenuPlacementButton.dataset.settingContextMenuPlacement;
+      if (key && isContextMenuPlacement(placement)) {
+        this.cancelSettingsPreview();
+        this.store.updateSettings({
+          contextMenu: updateContextMenuItemPlacement(
+            this.store.getSettings().contextMenu,
+            this.cachedDesktopNativeMenuItems ?? [],
+            key,
+            placement
+          )
+        });
+      }
+      return;
+    }
+
+    if (contextMenuSeparatorButton) {
+      const key = contextMenuSeparatorButton.dataset.menuKey;
+      if (key) {
+        this.cancelSettingsPreview();
+        this.store.updateSettings({
+          contextMenu: toggleContextMenuSeparator(
+            this.store.getSettings().contextMenu,
+            this.cachedDesktopNativeMenuItems ?? [],
+            key
+          )
+        });
+      }
+      return;
+    }
+
+    if (contextMenuResetButton) {
+      this.cancelSettingsPreview();
+      this.store.updateSettings({ contextMenu: resetContextMenuSettings() });
+      void this.refreshContextMenuSettingsPool();
       return;
     }
 
@@ -2445,6 +2551,216 @@ export class DesktopApp {
     }
 
     this.commitSettingValue(key, Math.min(max, Math.max(min, Math.round(value))));
+  }
+
+  private onSettingsContextMenuPointerDown(event: PointerEvent) {
+    if (event.button !== 0 || this.settingsView !== "contextMenu") {
+      return;
+    }
+
+    const target = event.target as HTMLElement;
+    if (target.closest("button, input, textarea, select")) {
+      return;
+    }
+
+    const row = target.closest<HTMLElement>("[data-setting-context-menu-drag]");
+    const key = row?.dataset.settingContextMenuDrag;
+    const placement = row?.dataset.settingContextMenuPlacement;
+    if (!row || !key || !isEditableContextMenuPlacement(placement)) {
+      return;
+    }
+
+    event.preventDefault();
+    this.settingsContextMenuDrag = {
+      key,
+      placement,
+      pointerId: event.pointerId,
+      startX: event.clientX,
+      startY: event.clientY,
+      startRect: row.getBoundingClientRect(),
+      row,
+      active: false,
+      lastTarget: null
+    };
+
+    try {
+      row.setPointerCapture?.(event.pointerId);
+    } catch {
+      // Window-level listeners keep the drag alive if capture is unavailable.
+    }
+
+    window.addEventListener("pointermove", this.onSettingsContextMenuPointerMove);
+    window.addEventListener("pointerup", this.onSettingsContextMenuPointerUp, { once: true });
+    window.addEventListener("pointercancel", this.onSettingsContextMenuPointerCancel, { once: true });
+    window.addEventListener("blur", this.onSettingsContextMenuPointerCancel, { once: true });
+  }
+
+  private readonly onSettingsContextMenuPointerMove = (event: PointerEvent) => {
+    const drag = this.settingsContextMenuDrag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+
+    const dx = event.clientX - drag.startX;
+    const dy = event.clientY - drag.startY;
+    if (!drag.active) {
+      if (Math.hypot(dx, dy) < 2) {
+        return;
+      }
+
+      drag.active = true;
+      drag.row.classList.add("is-dragging");
+      this.settingsLayer.classList.add("is-menu-dragging");
+    }
+
+    event.preventDefault();
+    drag.row.style.setProperty("--settings-menu-drag-y", `${dy}px`);
+    const target = this.settingsContextMenuDropTargetAt(event.clientX, event.clientY, drag);
+    drag.lastTarget = target;
+    this.paintSettingsContextMenuDropTarget(target);
+  };
+
+  private readonly onSettingsContextMenuPointerUp = (event: PointerEvent) => {
+    const drag = this.settingsContextMenuDrag;
+    if (!drag || event.pointerId !== drag.pointerId) {
+      return;
+    }
+
+    const target = drag.active
+      ? this.settingsContextMenuDropTargetAt(event.clientX, event.clientY, drag) ?? drag.lastTarget
+      : null;
+    const shouldCommit = drag.active && target && target.targetKey !== drag.key;
+    const key = drag.key;
+    const placement = drag.placement;
+    this.clearSettingsContextMenuDropState();
+    this.removeSettingsContextMenuDragListeners();
+
+    if (!shouldCommit) {
+      return;
+    }
+
+    event.preventDefault();
+    this.suppressNextClick = true;
+    window.setTimeout(() => {
+      this.suppressNextClick = false;
+    }, 0);
+    this.store.updateSettings({
+      contextMenu: reorderContextMenuItem(
+        this.store.getSettings().contextMenu,
+        this.cachedDesktopNativeMenuItems ?? [],
+        key,
+        target.targetKey,
+        placement,
+        target.position
+      )
+    });
+  };
+
+  private readonly onSettingsContextMenuPointerCancel = () => {
+    this.clearSettingsContextMenuDropState();
+    this.removeSettingsContextMenuDragListeners();
+  };
+
+  private removeSettingsContextMenuDragListeners() {
+    window.removeEventListener("pointermove", this.onSettingsContextMenuPointerMove);
+    window.removeEventListener("pointerup", this.onSettingsContextMenuPointerUp);
+    window.removeEventListener("pointercancel", this.onSettingsContextMenuPointerCancel);
+    window.removeEventListener("blur", this.onSettingsContextMenuPointerCancel);
+  }
+
+  private settingsContextMenuDropTargetAt(
+    clientX: number,
+    clientY: number,
+    drag: SettingsContextMenuDragState
+  ): SettingsContextMenuDropTarget | null {
+    if (
+      clientX >= drag.startRect.left &&
+      clientX <= drag.startRect.right &&
+      clientY >= drag.startRect.top &&
+      clientY <= drag.startRect.bottom
+    ) {
+      return null;
+    }
+
+    const previousPointerEvents = drag.row.style.pointerEvents;
+    drag.row.style.pointerEvents = "none";
+    const target = document.elementFromPoint(clientX, clientY) as HTMLElement | null;
+    drag.row.style.pointerEvents = previousPointerEvents;
+    return target ? this.settingsContextMenuDropTargetForElement(target, clientY, drag) : null;
+  }
+
+  private settingsContextMenuDropTargetForElement(
+    target: HTMLElement,
+    clientY: number,
+    drag: SettingsContextMenuDragState
+  ): SettingsContextMenuDropTarget | null {
+    const list = target.closest<HTMLElement>("[data-setting-context-menu-list]");
+    const placement = list?.dataset.settingContextMenuList;
+    if (!list || placement !== drag.placement) {
+      return null;
+    }
+
+    const divider = target.closest<HTMLElement>("[data-setting-context-menu-drop-after]");
+    if (divider && list.contains(divider)) {
+      const targetKey = divider.dataset.settingContextMenuDropAfter ?? null;
+      return targetKey && targetKey !== drag.key ? { list, row: divider, targetKey, position: "after" } : null;
+    }
+
+    const row = target.closest<HTMLElement>("[data-setting-context-menu-drag]");
+    if (row && list.contains(row)) {
+      const targetKey = row.dataset.settingContextMenuDrag ?? null;
+      if (targetKey === drag.key) {
+        return null;
+      }
+
+      const rect = row.getBoundingClientRect();
+      const position = clientY > rect.top + rect.height / 2 ? "after" : "before";
+      return { list, row, targetKey, position };
+    }
+
+    return { list, row: null, targetKey: null, position: "end" };
+  }
+
+  private paintSettingsContextMenuDropTarget(target: SettingsContextMenuDropTarget | null) {
+    if (sameSettingsContextMenuDropTarget(this.settingsContextMenuPaintedDrop, target)) {
+      return;
+    }
+
+    this.clearSettingsContextMenuDropMarker(this.settingsContextMenuPaintedDrop);
+    this.settingsContextMenuPaintedDrop = target;
+    if (!target) {
+      return;
+    }
+
+    if (target.row) {
+      target.row.classList.add(target.position === "after" ? "is-drop-after" : "is-drop-before");
+    } else {
+      target.list.classList.add("is-drop-end");
+    }
+  }
+
+  private clearSettingsContextMenuDropMarkers() {
+    this.clearSettingsContextMenuDropMarker(this.settingsContextMenuPaintedDrop);
+    this.settingsContextMenuPaintedDrop = null;
+  }
+
+  private clearSettingsContextMenuDropMarker(target: SettingsContextMenuDropTarget | null) {
+    if (!target) {
+      return;
+    }
+
+    target.row?.classList.remove("is-drop-before", "is-drop-after");
+    target.list.classList.remove("is-drop-end");
+  }
+
+  private clearSettingsContextMenuDropState() {
+    this.clearSettingsContextMenuDropMarkers();
+    this.settingsLayer.querySelectorAll(".is-dragging").forEach((element) => {
+      (element as HTMLElement).style.removeProperty("--settings-menu-drag-y");
+      element.classList.remove("is-dragging");
+    });
+    this.settingsLayer.classList.remove("is-menu-dragging");
+    this.settingsContextMenuDrag = null;
   }
 
   private updateSettingControlVisual(input: HTMLInputElement) {
@@ -3409,6 +3725,19 @@ export class DesktopApp {
     return this.desktopNativeMenuLoad;
   }
 
+  private async refreshContextMenuSettingsPool() {
+    try {
+      await this.loadNativeDesktopMenuItems();
+    } catch (error) {
+      console.warn("Unable to refresh context menu settings pool", error);
+      return;
+    }
+
+    if (this.settingsOpen && this.settingsView === "contextMenu") {
+      this.renderSettingsLayer();
+    }
+  }
+
   private activateDesktopNode(nodeId: string, element: HTMLElement) {
     const node = this.findNode(nodeId);
     if (!node) {
@@ -4071,6 +4400,13 @@ function scheduleIdleTask(callback: () => void, timeout: number) {
   window.setTimeout(callback, Math.min(timeout, 220));
 }
 
+function sameSettingsContextMenuDropTarget(
+  a: SettingsContextMenuDropTarget | null,
+  b: SettingsContextMenuDropTarget | null
+) {
+  return a?.list === b?.list && a?.row === b?.row && a?.targetKey === b?.targetKey && a?.position === b?.position;
+}
+
 function desktopItemsSignature(items: AppNode[]) {
   return items
     .map((item) => [
@@ -4089,7 +4425,10 @@ function isNavigationKey(key: string) {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
 }
 
-type NumericDesktopSettingKey = Exclude<keyof DesktopSettings, "layoutMode" | "appPriority" | "settingsDarkMode" | "systemIcons">;
+type NumericDesktopSettingKey = Exclude<
+  keyof DesktopSettings,
+  "layoutMode" | "appPriority" | "settingsDarkMode" | "systemIcons" | "contextMenu"
+>;
 
 function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {
   return (
@@ -4107,8 +4446,16 @@ function isAppProcessPriority(value: unknown): value is AppProcessPriority {
   return value === "normal" || value === "aboveNormal" || value === "high";
 }
 
+function isContextMenuPlacement(value: unknown): value is DesktopContextMenuPlacement {
+  return value === "main" || value === "more" || value === "hidden";
+}
+
+function isEditableContextMenuPlacement(value: unknown): value is Exclude<DesktopContextMenuPlacement, "hidden"> {
+  return value === "main" || value === "more";
+}
+
 function isSettingsView(value: unknown): value is SettingsView {
-  return value === "main" || value === "layout" || value === "system";
+  return value === "main" || value === "layout" || value === "system" || value === "contextMenu";
 }
 
 function clampScroll(value: number, min: number, max: number) {
