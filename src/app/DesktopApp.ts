@@ -19,10 +19,12 @@ import {
   applyDesktopSettings,
   defaultDesktopSettings,
   desktopTileMetrics,
+  desktopSystemIconIdFromNodeId,
   fitDesktopSettings,
   folderRatioMax,
   folderRatioMin,
   folderTileMetrics,
+  isDesktopSystemIconId,
   normalizeFolderAppearance
 } from "../settings/desktopSettings";
 import { DesktopStore } from "../state/store";
@@ -55,9 +57,11 @@ import type {
   DesktopNode,
   DesktopPosition,
   DesktopSettings,
+  DesktopSystemIconId,
   FolderAppearanceSettings,
   FolderNode,
-  LayoutSlot
+  LayoutSlot,
+  SettingsView
 } from "../types";
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
@@ -173,7 +177,8 @@ export class DesktopApp {
   private editingFolder = false;
   private folderClosing = false;
   private settingsOpen = false;
-  private settingsView: "main" | "layout" = "main";
+  private settingsView: SettingsView = "main";
+  private settingsSystemIconAddOpen = false;
   private settingsPriorityMenuOpen = false;
   private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
@@ -540,10 +545,12 @@ export class DesktopApp {
   }
 
   private renderSettingsLayer() {
+    const wasOpen = this.settingsLayer.classList.contains("is-open");
     this.settingsLayer.classList.toggle("is-open", this.settingsOpen);
 
     if (!this.settingsOpen) {
       this.settingsPriorityMenuOpen = false;
+      this.settingsSystemIconAddOpen = false;
       this.settingsLayer.classList.remove("is-settings-dark");
       this.settingsLayer.replaceChildren();
       return;
@@ -555,7 +562,10 @@ export class DesktopApp {
     this.settingsLayer.replaceChildren(
       ...renderSettingsLayer({
         settings,
-        view: this.settingsView
+        view: this.settingsView,
+        systemIconItems: this.store.getScannedItems().filter((item) => desktopSystemIconIdFromNodeId(item.id)),
+        systemIconAddOpen: this.settingsSystemIconAddOpen,
+        animate: !wasOpen
       })
     );
     this.renderSettingsPriorityMenu();
@@ -2205,6 +2215,9 @@ export class DesktopApp {
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
     const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
     const darkModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-dark-mode]");
+    const systemIconAddTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add-trigger]");
+    const systemIconAddButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add]");
+    const systemIconRemoveButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-remove]");
     const priorityTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-priority-trigger]");
     const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
     const priorityPopover = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-priority-popover]");
@@ -2217,16 +2230,22 @@ export class DesktopApp {
     if (reset) {
       this.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
+      this.settingsSystemIconAddOpen = false;
       this.store.updateSettings(defaultDesktopSettings);
       void setAppProcessPriority(defaultDesktopSettings.appPriority);
       return;
     }
 
-    if (viewButton?.dataset.settingsView === "main" || viewButton?.dataset.settingsView === "layout") {
+    const nextSettingsView = viewButton?.dataset.settingsView;
+    if (isSettingsView(nextSettingsView)) {
       this.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
-      this.settingsView = viewButton.dataset.settingsView;
+      this.settingsSystemIconAddOpen = false;
+      this.settingsView = nextSettingsView;
       this.renderSettingsLayer();
+      if (nextSettingsView === "system") {
+        this.scheduleFullDesktopItemLoad(120);
+      }
       return;
     }
 
@@ -2240,6 +2259,35 @@ export class DesktopApp {
       this.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       this.store.updateSettings({ settingsDarkMode: this.store.getSettings().settingsDarkMode !== true });
+      return;
+    }
+
+    if (systemIconAddTrigger) {
+      this.settingsPriorityMenuOpen = false;
+      this.settingsSystemIconAddOpen = !this.settingsSystemIconAddOpen;
+      this.renderSettingsLayer();
+      this.scheduleFullDesktopItemLoad(80);
+      return;
+    }
+
+    if (systemIconAddButton) {
+      const systemIconId = systemIconAddButton.dataset.settingSystemIconAdd;
+      if (isDesktopSystemIconId(systemIconId)) {
+        this.cancelSettingsPreview();
+        this.settingsPriorityMenuOpen = false;
+        this.settingsSystemIconAddOpen = false;
+        this.setSystemIconVisibility(systemIconId, true);
+      }
+      return;
+    }
+
+    if (systemIconRemoveButton) {
+      const systemIconId = systemIconRemoveButton.dataset.settingSystemIconRemove;
+      if (isDesktopSystemIconId(systemIconId)) {
+        this.cancelSettingsPreview();
+        this.settingsPriorityMenuOpen = false;
+        this.setSystemIconVisibility(systemIconId, false);
+      }
       return;
     }
 
@@ -2475,6 +2523,20 @@ export class DesktopApp {
     } finally {
       this.suppressStoreRender = previousSuppress;
     }
+  }
+
+  private setSystemIconVisibility(systemIconId: DesktopSystemIconId, visible: boolean) {
+    const current = this.store.getSettings().systemIcons;
+    if (current[systemIconId] === visible) {
+      return;
+    }
+
+    this.store.updateSettings({
+      systemIcons: {
+        ...current,
+        [systemIconId]: visible
+      }
+    });
   }
 
   private replaceTileIcon(tile: HTMLElement, icon: HTMLElement) {
@@ -3894,7 +3956,7 @@ function isNavigationKey(key: string) {
   return key === "ArrowLeft" || key === "ArrowRight" || key === "ArrowUp" || key === "ArrowDown" || key === "Home" || key === "End";
 }
 
-type NumericDesktopSettingKey = Exclude<keyof DesktopSettings, "layoutMode" | "appPriority" | "settingsDarkMode">;
+type NumericDesktopSettingKey = Exclude<keyof DesktopSettings, "layoutMode" | "appPriority" | "settingsDarkMode" | "systemIcons">;
 
 function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {
   return (
@@ -3910,6 +3972,10 @@ function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {
 
 function isAppProcessPriority(value: unknown): value is AppProcessPriority {
   return value === "normal" || value === "aboveNormal" || value === "high";
+}
+
+function isSettingsView(value: unknown): value is SettingsView {
+  return value === "main" || value === "layout" || value === "system";
 }
 
 function clampScroll(value: number, min: number, max: number) {

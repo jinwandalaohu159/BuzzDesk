@@ -639,40 +639,15 @@ mod platform {
 
     fn scan_desktop_items_with_icons(include_icons: bool) -> Result<Vec<DesktopItem>, String> {
         let mut items = BTreeMap::new();
-        let mut errors = Vec::new();
-        let mut shell_scan_succeeded = false;
 
-        match scan_shell_desktop_items(include_icons) {
-            Ok(shell_items) => {
-                shell_scan_succeeded = true;
-                for item in shell_items {
-                    items.entry(item.id.clone()).or_insert(item);
-                }
-            }
-            Err(error) => errors.push(error),
-        }
-
-        match scan_desktop_file_items(include_icons) {
-            Ok(file_items) => {
-                for item in file_items {
-                    items.entry(item.id.clone()).or_insert(item);
-                }
-            }
-            Err(error) => errors.push(error),
-        }
-
-        if !shell_scan_succeeded {
-            for item in virtual_desktop_items(include_icons) {
+        if let Ok(file_items) = scan_desktop_file_items(include_icons) {
+            for item in file_items {
                 items.entry(item.id.clone()).or_insert(item);
             }
         }
 
-        if items.is_empty() {
-            return Err(if errors.is_empty() {
-                "no desktop items found".to_string()
-            } else {
-                errors.join(" | ")
-            });
+        for item in virtual_desktop_items(include_icons) {
+            items.entry(item.id.clone()).or_insert(item);
         }
 
         Ok(items.into_values().collect())
@@ -1872,7 +1847,7 @@ mod platform {
             ),
             virtual_desktop_item(
                 "shell:user-files",
-                "\u{7528}\u{6237}\u{6587}\u{4ef6}",
+                "\u{7528}\u{6237}\u{6587}\u{4ef6}\u{5939}",
                 "shell:UsersFilesFolder",
                 include_icons,
             ),
@@ -1886,6 +1861,36 @@ mod platform {
                 "shell:control-panel",
                 "\u{63a7}\u{5236}\u{9762}\u{677f}",
                 "shell:ControlPanelFolder",
+                include_icons,
+            ),
+            virtual_desktop_item(
+                "shell:downloads",
+                "\u{4e0b}\u{8f7d}",
+                "shell:Downloads",
+                include_icons,
+            ),
+            virtual_desktop_item(
+                "shell:documents",
+                "\u{6587}\u{6863}",
+                "shell:Personal",
+                include_icons,
+            ),
+            virtual_desktop_item(
+                "shell:pictures",
+                "\u{56fe}\u{7247}",
+                "shell:My Pictures",
+                include_icons,
+            ),
+            virtual_desktop_item(
+                "shell:music",
+                "\u{97f3}\u{4e50}",
+                "shell:My Music",
+                include_icons,
+            ),
+            virtual_desktop_item(
+                "shell:videos",
+                "\u{89c6}\u{9891}",
+                "shell:My Video",
                 include_icons,
             ),
         ]
@@ -1941,6 +1946,36 @@ mod platform {
             || normalized == "shell:controlpanelfolder"
         {
             return Some("shell:control-panel".to_string());
+        }
+
+        if normalized.contains("374de290-123f-4565-9164-39c4925e467b")
+            || normalized == "shell:downloads"
+        {
+            return Some("shell:downloads".to_string());
+        }
+
+        if normalized.contains("fdd39ad0-238f-46af-adb4-6c85480369c7")
+            || normalized == "shell:personal"
+        {
+            return Some("shell:documents".to_string());
+        }
+
+        if normalized.contains("33e28130-4e1e-4676-835a-98395c3bc3bb")
+            || normalized == "shell:my pictures"
+        {
+            return Some("shell:pictures".to_string());
+        }
+
+        if normalized.contains("4bd8d571-6d19-48d3-be97-422220080e43")
+            || normalized == "shell:my music"
+        {
+            return Some("shell:music".to_string());
+        }
+
+        if normalized.contains("18989b1d-99b5-455b-841c-ab7c74e4ddfc")
+            || normalized == "shell:my video"
+        {
+            return Some("shell:videos".to_string());
         }
 
         None

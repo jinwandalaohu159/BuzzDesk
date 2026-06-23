@@ -3,14 +3,40 @@ import type {
   DesktopLayoutMode,
   DesktopNode,
   DesktopSettings,
+  DesktopSystemIconId,
+  DesktopSystemIconSettings,
   FolderAppearanceSettings,
   FolderCoverSize
 } from "../types";
+
+export const desktopSystemIconOptions = [
+  { id: "myComputer", label: "\u6b64\u7535\u8111", shellId: "shell:my-computer", defaultEnabled: true },
+  { id: "recycleBin", label: "\u56de\u6536\u7ad9", shellId: "shell:recycle-bin", defaultEnabled: true },
+  { id: "network", label: "\u7f51\u7edc", shellId: "shell:network", defaultEnabled: true },
+  { id: "controlPanel", label: "\u63a7\u5236\u9762\u677f", shellId: "shell:control-panel", defaultEnabled: true },
+  { id: "userFiles", label: "\u7528\u6237\u6587\u4ef6\u5939", shellId: "shell:user-files", defaultEnabled: true },
+  { id: "downloads", label: "\u4e0b\u8f7d", shellId: "shell:downloads", defaultEnabled: false },
+  { id: "documents", label: "\u6587\u6863", shellId: "shell:documents", defaultEnabled: false },
+  { id: "pictures", label: "\u56fe\u7247", shellId: "shell:pictures", defaultEnabled: false },
+  { id: "music", label: "\u97f3\u4e50", shellId: "shell:music", defaultEnabled: false },
+  { id: "videos", label: "\u89c6\u9891", shellId: "shell:videos", defaultEnabled: false }
+] as const;
+
+export const desktopSystemIconIds = desktopSystemIconOptions.map((option) => option.id) as DesktopSystemIconId[];
+
+const desktopSystemIconShellIds = Object.fromEntries(
+  desktopSystemIconOptions.map((option) => [option.id, option.shellId])
+) as Record<DesktopSystemIconId, string>;
+
+export const defaultDesktopSystemIcons = Object.fromEntries(
+  desktopSystemIconOptions.map((option) => [option.id, option.defaultEnabled])
+) as DesktopSystemIconSettings;
 
 export const defaultDesktopSettings: DesktopSettings = {
   layoutMode: "auto",
   appPriority: "aboveNormal",
   settingsDarkMode: false,
+  systemIcons: { ...defaultDesktopSystemIcons },
   appIconSize: 60,
   desktopGapPx: 12,
   desktopPaddingX: 28,
@@ -57,6 +83,7 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
     layoutMode: normalizeLayoutMode(settings?.layoutMode),
     appPriority: normalizeAppPriority(settings?.appPriority),
     settingsDarkMode: settings?.settingsDarkMode === true,
+    systemIcons: normalizeSystemIcons(settings?.systemIcons),
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),
     desktopGapPx: clampNumber(settings?.desktopGapPx, 0, 32, defaultDesktopSettings.desktopGapPx),
     desktopPaddingX: clampNumber(settings?.desktopPaddingX, 0, 160, defaultDesktopSettings.desktopPaddingX),
@@ -88,6 +115,28 @@ function normalizeLayoutMode(value: unknown): DesktopLayoutMode {
 
 function normalizeAppPriority(value: unknown): AppProcessPriority {
   return value === "high" || value === "normal" ? value : "aboveNormal";
+}
+
+function normalizeSystemIcons(value: unknown): DesktopSystemIconSettings {
+  if (!value || typeof value !== "object") {
+    return { ...defaultDesktopSystemIcons };
+  }
+
+  const source = value as Partial<Record<DesktopSystemIconId, unknown>>;
+  return Object.fromEntries(
+    desktopSystemIconIds.map((id) => [
+      id,
+      source[id] === undefined ? defaultDesktopSystemIcons[id] : source[id] !== false
+    ])
+  ) as DesktopSystemIconSettings;
+}
+
+export function desktopSystemIconIdFromNodeId(id: string): DesktopSystemIconId | null {
+  return desktopSystemIconIds.find((systemIconId) => desktopSystemIconShellIds[systemIconId] === id) ?? null;
+}
+
+export function isDesktopSystemIconId(value: unknown): value is DesktopSystemIconId {
+  return typeof value === "string" && desktopSystemIconIds.includes(value as DesktopSystemIconId);
 }
 
 export function normalizeFolderAppearance(

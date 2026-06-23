@@ -5,7 +5,8 @@ import type {
   DesktopSettings,
   FolderAppearanceSettings,
   FolderNode,
-  LayoutSlot
+  LayoutSlot,
+  SettingsView
 } from "../types";
 import type { FolderPanelSize } from "../layout/grid";
 import {
@@ -14,7 +15,8 @@ import {
   folderRatioMin,
   normalizeFolderAppearance,
   desktopTileMetrics,
-  folderTileMetrics
+  folderTileMetrics,
+  desktopSystemIconOptions
 } from "../settings/desktopSettings";
 
 interface FolderOpenOrigin {
@@ -22,6 +24,8 @@ interface FolderOpenOrigin {
   y: number;
   scale: number;
 }
+
+type DesktopSystemIconOption = (typeof desktopSystemIconOptions)[number];
 
 interface FolderPageRenderOptions {
   renamingChildId: string | null;
@@ -278,22 +282,31 @@ function renderFolderChildRenameInput(folderId: string, childId: string, name: s
 
 export function renderSettingsLayer(options: {
   settings: DesktopSettings;
-  view: "main" | "layout";
+  view: SettingsView;
+  systemIconItems?: AppNode[];
+  systemIconAddOpen?: boolean;
+  animate?: boolean;
 }) {
   const { settings, view } = options;
   const backdrop = document.createElement("div");
   backdrop.className = "settings-backdrop";
+  if (options.animate === false) {
+    backdrop.classList.add("is-static");
+  }
   backdrop.dataset.settingsClose = "true";
 
   const panel = document.createElement("section");
   panel.className = "settings-panel";
+  if (options.animate === false) {
+    panel.classList.add("is-static");
+  }
   panel.setAttribute("aria-label", "外观设置");
 
   const header = document.createElement("header");
   header.className = "settings-header";
 
   const title = document.createElement("h2");
-  title.textContent = view === "layout" ? "\u5e03\u5c40\u8bbe\u7f6e" : "\u8bbe\u7f6e";
+  title.textContent = settingsTitle(view);
 
   const close = document.createElement("button");
   close.className = "settings-close";
@@ -328,13 +341,40 @@ export function renderSettingsLayer(options: {
 
   const controls = document.createElement("div");
   controls.className = "settings-controls";
-  controls.replaceChildren(...renderSettingsControls(settings, view));
+  if (view === "system") {
+    controls.classList.add("is-system-view");
+  }
+  controls.replaceChildren(
+    ...renderSettingsControls(settings, view, {
+      systemIconItems: options.systemIconItems ?? [],
+      systemIconAddOpen: options.systemIconAddOpen === true
+    })
+  );
 
   panel.append(controls);
   return [backdrop, panel];
 }
 
-function renderSettingsControls(settings: DesktopSettings, view: "main" | "layout") {
+function settingsTitle(view: SettingsView) {
+  if (view === "layout") {
+    return "\u5e03\u5c40\u8bbe\u7f6e";
+  }
+
+  if (view === "system") {
+    return "\u7cfb\u7edf\u56fe\u6807";
+  }
+
+  return "\u8bbe\u7f6e";
+}
+
+function renderSettingsControls(
+  settings: DesktopSettings,
+  view: SettingsView,
+  options: {
+    systemIconItems: AppNode[];
+    systemIconAddOpen: boolean;
+  }
+) {
   if (view === "layout") {
     return [
       renderLayoutModeControl(settings.layoutMode),
@@ -348,6 +388,10 @@ function renderSettingsControls(settings: DesktopSettings, view: "main" | "layou
     ];
   }
 
+  if (view === "system") {
+    return renderSystemIconControls(settings.systemIcons, options.systemIconItems, options.systemIconAddOpen);
+  }
+
   return [
     renderSettingsNavControl(
       "\u5e03\u5c40\u8bbe\u7f6e",
@@ -356,12 +400,17 @@ function renderSettingsControls(settings: DesktopSettings, view: "main" | "layou
         : "\u81ea\u52a8\u6392\u5217\u3001\u56fe\u6807\u3001\u95f4\u8ddd\u548c\u8fb9\u8ddd",
       "layout"
     ),
+    renderSettingsNavControl(
+      "\u7cfb\u7edf\u56fe\u6807",
+      "\u6b64\u7535\u8111\u3001\u56de\u6536\u7ad9\u3001\u7f51\u7edc\u7b49",
+      "system"
+    ),
     renderSettingsDarkModeControl(settings.settingsDarkMode),
     renderAppPriorityControl(settings.appPriority)
   ];
 }
 
-function renderSettingsNavControl(label: string, detail: string, view: "layout") {
+function renderSettingsNavControl(label: string, detail: string, view: Exclude<SettingsView, "main">) {
   const button = document.createElement("button");
   button.className = "settings-nav-row";
   button.type = "button";
@@ -454,6 +503,21 @@ function renderLayoutModeControl(layoutMode: DesktopSettings["layoutMode"]) {
 }
 
 function renderSettingsDarkModeControl(enabled: boolean) {
+  return renderSettingsToggleRow({
+    label: "\u6df1\u8272\u6a21\u5f0f",
+    output: enabled ? "\u5f00" : "\u5173",
+    enabled,
+    datasetKey: "settingDarkMode"
+  });
+}
+
+function renderSettingsToggleRow(options: {
+  label: string;
+  output: string;
+  enabled: boolean;
+  datasetKey: string;
+  datasetValue?: string;
+}) {
   const row = document.createElement("section");
   row.className = "settings-row settings-toggle-row";
 
@@ -461,22 +525,141 @@ function renderSettingsDarkModeControl(enabled: boolean) {
   meta.className = "settings-row-meta";
 
   const name = document.createElement("span");
-  name.textContent = "\u6df1\u8272\u6a21\u5f0f";
+  name.textContent = options.label;
 
   const output = document.createElement("output");
-  output.textContent = enabled ? "\u5f00" : "\u5173";
+  output.textContent = options.output;
 
   meta.append(name, output);
 
   const toggle = document.createElement("button");
   toggle.type = "button";
   toggle.className = "settings-toggle";
-  toggle.dataset.settingDarkMode = "true";
-  toggle.setAttribute("aria-pressed", String(enabled));
+  toggle.dataset[options.datasetKey] = options.datasetValue ?? "true";
+  toggle.setAttribute("aria-pressed", String(options.enabled));
   toggle.append(document.createElement("span"));
 
   row.append(meta, toggle);
   return row;
+}
+
+function renderSystemIconControls(
+  systemIcons: DesktopSettings["systemIcons"],
+  systemIconItems: AppNode[],
+  addOpen: boolean
+) {
+  const section = document.createElement("section");
+  section.className = "settings-system-manager";
+
+  const scannedById = new Map(systemIconItems.map((item) => [item.id, item]));
+  const enabledOptions = desktopSystemIconOptions.filter((option) => systemIcons[option.id] !== false);
+  const disabledOptions = desktopSystemIconOptions.filter((option) => systemIcons[option.id] === false);
+
+  const gallery = document.createElement("div");
+  gallery.className = "settings-system-gallery";
+
+  enabledOptions.forEach((option) => {
+    gallery.append(renderSystemIconCard(option, scannedById.get(option.shellId)));
+  });
+
+  if (enabledOptions.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "settings-system-empty";
+    empty.textContent = "\u6682\u65e0\u7cfb\u7edf\u56fe\u6807";
+    gallery.append(empty);
+  }
+
+  const add = document.createElement("button");
+  add.type = "button";
+  add.className = "settings-system-add-card";
+  add.dataset.settingSystemIconAddTrigger = "true";
+  add.setAttribute("aria-expanded", String(addOpen));
+
+  const plus = document.createElement("span");
+  plus.className = "settings-system-add-plus";
+  plus.textContent = "+";
+
+  const label = document.createElement("span");
+  label.textContent = "\u6dfb\u52a0";
+
+  add.append(plus, label);
+  gallery.append(add);
+  section.append(gallery);
+
+  if (addOpen) {
+    section.append(renderSystemIconPicker(disabledOptions, scannedById));
+  }
+
+  return [section];
+}
+
+function renderSystemIconCard(
+  option: DesktopSystemIconOption,
+  item?: AppNode
+) {
+  const card = document.createElement("div");
+  card.className = "settings-system-card";
+  card.append(renderIcon(systemIconPreviewItem(option, item)));
+
+  const label = document.createElement("span");
+  label.className = "settings-system-card-label";
+  label.textContent = option.label;
+
+  const remove = document.createElement("button");
+  remove.type = "button";
+  remove.className = "settings-system-remove";
+  remove.dataset.settingSystemIconRemove = option.id;
+  remove.setAttribute("aria-label", `\u79fb\u9664${option.label}`);
+
+  card.append(label, remove);
+  return card;
+}
+
+function renderSystemIconPicker(
+  options: DesktopSystemIconOption[],
+  scannedById: ReadonlyMap<string, AppNode>
+) {
+  const picker = document.createElement("div");
+  picker.className = "settings-system-picker";
+
+  if (options.length === 0) {
+    const empty = document.createElement("div");
+    empty.className = "settings-system-picker-empty";
+    empty.textContent = "\u5df2\u5168\u90e8\u6dfb\u52a0";
+    picker.append(empty);
+    return picker;
+  }
+
+  options.forEach((option) => {
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "settings-system-candidate";
+    button.dataset.settingSystemIconAdd = option.id;
+    button.append(renderIcon(systemIconPreviewItem(option, scannedById.get(option.shellId))));
+
+    const label = document.createElement("span");
+    label.textContent = option.label;
+    button.append(label);
+    picker.append(button);
+  });
+
+  return picker;
+}
+
+function systemIconPreviewItem(
+  option: DesktopSystemIconOption,
+  item?: AppNode
+): AppNode {
+  return item ?? {
+    type: "item",
+    id: option.shellId,
+    name: option.label,
+    kind: "system",
+    path: null,
+    launchId: option.shellId,
+    iconDataUrl: null,
+    isVirtual: true
+  };
 }
 
 function renderAppPriorityControl(priority: DesktopSettings["appPriority"]) {

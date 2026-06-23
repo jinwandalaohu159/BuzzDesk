@@ -9,6 +9,8 @@ import type {
 } from "../types";
 import {
   createDefaultFolderAppearance,
+  desktopSystemIconIds,
+  desktopSystemIconIdFromNodeId,
   normalizeFolderAppearance,
   defaultDesktopSettings,
   defaultFolderAppearance,
@@ -32,6 +34,7 @@ interface MovePosition {
 export class DesktopStore {
   private nodes: DesktopNode[] = [];
   private settings: DesktopSettings = defaultDesktopSettings;
+  private scannedItems: AppNode[] = [];
   private listeners = new Set<() => void>();
 
   subscribe(listener: () => void) {
@@ -47,29 +50,41 @@ export class DesktopStore {
     return this.settings;
   }
 
+  getScannedItems() {
+    return this.scannedItems;
+  }
+
   hydrate(scannedItems: AppNode[]) {
     const saved = loadState();
+    this.scannedItems = scannedItems;
     this.settings = normalizeDesktopSettings(saved?.settings);
+    const visibleScannedItems = this.visibleScannedItems();
 
     if (!saved) {
-      this.nodes = scannedItems;
+      this.nodes = visibleScannedItems;
       this.persistAndEmit();
       return;
     }
 
-    this.nodes = reconcileNodesWithScanned(saved.nodes, scannedItems);
+    this.nodes = reconcileNodesWithScanned(saved.nodes, visibleScannedItems);
     this.persistAndEmit();
   }
 
   syncScannedItems(scannedItems: AppNode[]) {
+    this.scannedItems = scannedItems;
+    const visibleScannedItems = this.visibleScannedItems();
     this.nodes = this.nodes.length > 0
-      ? reconcileNodesWithScanned(this.nodes, scannedItems)
-      : scannedItems;
+      ? reconcileNodesWithScanned(this.nodes, visibleScannedItems)
+      : visibleScannedItems;
     this.persistAndEmit();
   }
 
   updateSettings(settings: Partial<DesktopSettings>) {
+    const previousSystemIcons = this.settings.systemIcons;
     this.settings = normalizeDesktopSettings({ ...this.settings, ...settings });
+    if (previousSystemIcons && systemIconsChanged(previousSystemIcons, this.settings.systemIcons)) {
+      this.nodes = reconcileNodesWithScanned(this.nodes, this.visibleScannedItems());
+    }
     this.persistAndEmit();
   }
 
@@ -140,8 +155,10 @@ export class DesktopStore {
   }
 
   refreshKnownItems(scannedItems: AppNode[]) {
-    const scanned = new Map(scannedItems.map((item) => [item.id, item]));
-    const scannedByPath = createScannedPathIndex(scannedItems);
+    this.scannedItems = scannedItems;
+    const visibleScannedItems = this.visibleScannedItems();
+    const scanned = new Map(visibleScannedItems.map((item) => [item.id, item]));
+    const scannedByPath = createScannedPathIndex(visibleScannedItems);
     const used = new Set<string>();
     let changed = false;
 
@@ -467,6 +484,17 @@ export class DesktopStore {
     saveState(this.nodes, this.settings);
     this.listeners.forEach((listener) => listener());
   }
+
+  private visibleScannedItems() {
+    return this.scannedItems.filter((item) => {
+      const systemIconId = desktopSystemIconIdFromNodeId(item.id);
+      return !systemIconId || this.settings.systemIcons[systemIconId];
+    });
+  }
+}
+
+function systemIconsChanged(a: DesktopSettings["systemIcons"], b: DesktopSettings["systemIcons"]) {
+  return desktopSystemIconIds.some((id) => a[id] !== b[id]);
 }
 
 function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNode>, scannedItems: AppNode[]) {

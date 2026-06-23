@@ -3,6 +3,19 @@ export type DesktopItemKind = "app" | "file" | "directory" | "system";
 export type FolderCoverSize = "small" | "medium" | "large";
 export type DesktopLayoutMode = "auto" | "free";
 export type AppProcessPriority = "normal" | "aboveNormal" | "high";
+export type SettingsView = "main" | "layout" | "system";
+export type DesktopSystemIconId =
+  | "myComputer"
+  | "recycleBin"
+  | "network"
+  | "controlPanel"
+  | "userFiles"
+  | "downloads"
+  | "documents"
+  | "pictures"
+  | "music"
+  | "videos";
+export type DesktopSystemIconSettings = Record<DesktopSystemIconId, boolean>;
 
 export interface DesktopPosition {
   x: number;
@@ -60,6 +73,7 @@ export interface DesktopSettings {
   layoutMode: DesktopLayoutMode;
   appPriority: AppProcessPriority;
   settingsDarkMode: boolean;
+  systemIcons: DesktopSystemIconSettings;
   appIconSize: number;
   desktopGapPx: number;
   desktopPaddingX: number;
