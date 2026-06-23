@@ -52,6 +52,17 @@ pub struct NativeContextMenuResult {
     pub verb: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct NativeContextMenuItem {
+    pub label: String,
+    pub command_id: Option<u32>,
+    pub disabled: bool,
+    pub checked: bool,
+    pub separator: bool,
+    pub submenu: Vec<NativeContextMenuItem>,
+}
+
 #[tauri::command]
 fn scan_desktop_items() -> Result<Vec<DesktopItem>, String> {
     platform::scan_desktop_items()
@@ -149,10 +160,29 @@ fn show_native_item_context_menu(
 }
 
 #[tauri::command]
-fn show_native_desktop_context_menu(
+fn list_native_desktop_context_menu(app: AppHandle) -> Result<Vec<NativeContextMenuItem>, String> {
+    let window = app
+        .get_webview_window("main")
+        .ok_or("main window not found")?;
+
+    #[cfg(windows)]
+    {
+        let hwnd = window
+            .hwnd()
+            .map_err(|error| format!("failed to get main window hwnd: {error}"))?;
+        platform::list_native_desktop_context_menu(hwnd)
+    }
+
+    #[cfg(not(windows))]
+    {
+        Ok(Vec::new())
+    }
+}
+
+#[tauri::command]
+fn invoke_native_desktop_context_menu_command(
     app: AppHandle,
-    x: i32,
-    y: i32,
+    command_id: u32,
 ) -> Result<NativeContextMenuResult, String> {
     let window = app
         .get_webview_window("main")
@@ -163,12 +193,12 @@ fn show_native_desktop_context_menu(
         let hwnd = window
             .hwnd()
             .map_err(|error| format!("failed to get main window hwnd: {error}"))?;
-        platform::show_native_desktop_context_menu(hwnd, x, y)
+        platform::invoke_native_desktop_context_menu_command(hwnd, command_id)
     }
 
     #[cfg(not(windows))]
     {
-        let _ = (x, y);
+        let _ = command_id;
         Ok(NativeContextMenuResult {
             invoked: false,
             verb: None,
@@ -346,7 +376,8 @@ pub fn run() {
             show_desktop_item_properties,
             set_app_process_priority,
             show_native_item_context_menu,
-            show_native_desktop_context_menu,
+            list_native_desktop_context_menu,
+            invoke_native_desktop_context_menu_command,
             hide_native_desktop_icons,
             show_native_desktop_icons,
             attach_desktop_layer_window,
@@ -530,7 +561,7 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use super::{DesktopDiagnostics, DesktopItem, NativeContextMenuResult, WindowBounds};
+    use super::{DesktopDiagnostics, DesktopItem, NativeContextMenuItem, NativeContextMenuResult, WindowBounds};
     use base64::{engine::general_purpose, Engine as _};
     use std::cell::RefCell;
     use std::collections::{BTreeMap, HashMap};
@@ -541,7 +572,7 @@ mod platform {
     use std::os::windows::fs::MetadataExt;
     use std::path::{Path, PathBuf};
     use std::sync::{Mutex, OnceLock};
-    use windows::core::{w, Interface, BOOL, PCSTR, PCWSTR, PSTR};
+    use windows::core::{w, Interface, BOOL, PCSTR, PCWSTR, PSTR, PWSTR};
     use windows::Win32::Foundation::{
         CloseHandle, GlobalFree, HANDLE, HGLOBAL, HWND, LPARAM, LRESULT, POINT, RECT, WPARAM,
     };
@@ -618,15 +649,17 @@ mod platform {
     use windows::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, CreatePopupMenu, DefWindowProcW, DestroyIcon, DestroyMenu, EnumWindows,
         FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos, GetIconInfo,
-        GetSystemMetrics, GetWindowLongW, GetWindowRect, PrivateExtractIconsW, SendMessageTimeoutW,
-        SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowLongW, SetWindowPos,
-        ShowWindow, TrackPopupMenuEx, GWLP_WNDPROC, GWL_STYLE, HICON, HTCLIENT, ICONINFO,
-        SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE,
-        SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
-        WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST, WNDPROC, WS_CAPTION,
-        WS_CHILD, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME,
-        WS_VISIBLE,
+        GetMenuItemCount, GetMenuItemInfoW, GetSystemMetrics, GetWindowLongW, GetWindowRect,
+        PrivateExtractIconsW, SendMessageTimeoutW, SetForegroundWindow, SetParent,
+        SetWindowLongPtrW, SetWindowLongW, SetWindowPos, ShowWindow, TrackPopupMenuEx,
+        GWLP_WNDPROC, GWL_STYLE, HICON, HMENU, HTCLIENT, ICONINFO, MENUITEMINFOW, MFS_CHECKED,
+        MFS_DISABLED, MFS_GRAYED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE,
+        MIIM_STRING, MIIM_SUBMENU, SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE,
+        SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD,
+        TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
+        WM_NCHITTEST, WNDPROC, WS_CAPTION, WS_CHILD, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
+        WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
     };
 
     pub fn scan_desktop_items() -> Result<Vec<DesktopItem>, String> {
@@ -1088,14 +1121,12 @@ mod platform {
         }
     }
 
-    pub fn show_native_desktop_context_menu(
+    pub fn list_native_desktop_context_menu(
         owner: HWND,
-        x: i32,
-        y: i32,
-    ) -> Result<NativeContextMenuResult, String> {
+    ) -> Result<Vec<NativeContextMenuItem>, String> {
         unsafe {
             let com_initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
-            let result = show_native_desktop_context_menu_inner(owner, x, y);
+            let result = list_native_desktop_context_menu_inner(owner);
 
             if com_initialized {
                 CoUninitialize();
@@ -1105,18 +1136,62 @@ mod platform {
         }
     }
 
-    unsafe fn show_native_desktop_context_menu_inner(
+    pub fn invoke_native_desktop_context_menu_command(
         owner: HWND,
-        x: i32,
-        y: i32,
+        command_id: u32,
     ) -> Result<NativeContextMenuResult, String> {
+        unsafe {
+            let com_initialized = CoInitializeEx(None, COINIT_APARTMENTTHREADED).is_ok();
+            let result = invoke_native_desktop_context_menu_command_inner(owner, command_id);
+
+            if com_initialized {
+                CoUninitialize();
+            }
+
+            result
+        }
+    }
+
+    unsafe fn list_native_desktop_context_menu_inner(
+        owner: HWND,
+    ) -> Result<Vec<NativeContextMenuItem>, String> {
+        let (context_menu, menu) = desktop_context_menu(owner)?;
+        let items = enumerate_native_context_menu(&context_menu, menu, 1);
+        let _ = DestroyMenu(menu);
+        Ok(items)
+    }
+
+    unsafe fn invoke_native_desktop_context_menu_command_inner(
+        owner: HWND,
+        command_id: u32,
+    ) -> Result<NativeContextMenuResult, String> {
+        let (context_menu, menu) = desktop_context_menu(owner)?;
+        initialize_native_context_menu_submenus(&context_menu, menu, 1);
+        let result = invoke_context_menu_command(&context_menu, owner, command_id as usize);
+        let _ = DestroyMenu(menu);
+        result
+    }
+
+    unsafe fn desktop_context_menu(owner: HWND) -> Result<(IContextMenu, HMENU), String> {
         let desktop =
             SHGetDesktopFolder().map_err(|error| format!("SHGetDesktopFolder failed: {error}"))?;
         let context_menu: IContextMenu = desktop
             .CreateViewObject(owner)
             .map_err(|error| format!("CreateViewObject(IContextMenu) failed: {error}"))?;
+        let menu = CreatePopupMenu().map_err(|error| format!("CreatePopupMenu failed: {error}"))?;
+        let query = context_menu.QueryContextMenu(
+            menu,
+            0,
+            1,
+            0x7fff,
+            CMF_NORMAL | CMF_CANRENAME,
+        );
+        if query.is_err() {
+            let _ = DestroyMenu(menu);
+            return Err(format!("QueryContextMenu failed: {query:?}"));
+        }
 
-        show_context_menu(context_menu, owner, x, y)
+        Ok((context_menu, menu))
     }
 
     unsafe fn show_native_item_context_menu_inner(
@@ -1166,6 +1241,207 @@ mod platform {
         show_context_menu(context_menu, owner, x, y)
     }
 
+    unsafe fn enumerate_native_context_menu(
+        context_menu: &IContextMenu,
+        menu: HMENU,
+        depth: usize,
+    ) -> Vec<NativeContextMenuItem> {
+        if depth > 4 {
+            return Vec::new();
+        }
+
+        let count = GetMenuItemCount(Some(menu));
+        if count <= 0 {
+            return Vec::new();
+        }
+
+        let mut items = Vec::new();
+        for index in 0..count {
+            let mut info = MENUITEMINFOW {
+                cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+                fMask: MIIM_FTYPE | MIIM_STATE | MIIM_ID | MIIM_SUBMENU | MIIM_STRING,
+                ..Default::default()
+            };
+
+            if GetMenuItemInfoW(menu, index as u32, true, &mut info).is_err() {
+                continue;
+            }
+
+            let separator = (info.fType & MFT_SEPARATOR) == MFT_SEPARATOR;
+            let disabled =
+                (info.fState & MFS_DISABLED) == MFS_DISABLED || (info.fState & MFS_GRAYED) == MFS_GRAYED;
+            let checked = (info.fState & MFS_CHECKED) == MFS_CHECKED;
+            let submenu = if !info.hSubMenu.is_invalid() {
+                initialize_native_submenu(context_menu, info.hSubMenu, index);
+                enumerate_native_context_menu(context_menu, info.hSubMenu, depth + 1)
+            } else {
+                Vec::new()
+            };
+            let label = native_menu_item_label(menu, index as u32);
+            let command_id = if info.wID >= 1 && info.wID <= 0x7fff {
+                Some(info.wID - 1)
+            } else {
+                None
+            };
+
+            if separator || !label.is_empty() || !submenu.is_empty() {
+                items.push(NativeContextMenuItem {
+                    label,
+                    command_id,
+                    disabled,
+                    checked,
+                    separator,
+                    submenu,
+                });
+            }
+        }
+
+        collapse_menu_separators(items)
+    }
+
+    unsafe fn initialize_native_context_menu_submenus(
+        context_menu: &IContextMenu,
+        menu: HMENU,
+        depth: usize,
+    ) {
+        if depth > 4 {
+            return;
+        }
+
+        let count = GetMenuItemCount(Some(menu));
+        if count <= 0 {
+            return;
+        }
+
+        for index in 0..count {
+            let mut info = MENUITEMINFOW {
+                cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+                fMask: MIIM_SUBMENU,
+                ..Default::default()
+            };
+
+            if GetMenuItemInfoW(menu, index as u32, true, &mut info).is_err()
+                || info.hSubMenu.is_invalid()
+            {
+                continue;
+            }
+
+            initialize_native_submenu(context_menu, info.hSubMenu, index);
+            initialize_native_context_menu_submenus(context_menu, info.hSubMenu, depth + 1);
+        }
+    }
+
+    unsafe fn initialize_native_submenu(context_menu: &IContextMenu, submenu: HMENU, index: i32) {
+        let message = WM_INITMENUPOPUP;
+        let wparam = WPARAM(submenu.0 as usize);
+        let lparam = LPARAM(index as isize);
+
+        if let Ok(context_menu3) = context_menu.cast::<IContextMenu3>() {
+            let mut result = LRESULT(0);
+            if context_menu3
+                .HandleMenuMsg2(message, wparam, lparam, Some(&mut result))
+                .is_ok()
+            {
+                return;
+            }
+        }
+
+        if let Ok(context_menu2) = context_menu.cast::<IContextMenu2>() {
+            let _ = context_menu2.HandleMenuMsg(message, wparam, lparam);
+        }
+    }
+
+    unsafe fn native_menu_item_label(menu: HMENU, index: u32) -> String {
+        let mut info = MENUITEMINFOW {
+            cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+            fMask: MIIM_STRING,
+            ..Default::default()
+        };
+
+        if GetMenuItemInfoW(menu, index, true, &mut info).is_err() || info.cch == 0 {
+            return String::new();
+        }
+
+        let mut buffer = vec![0u16; info.cch as usize + 1];
+        info.dwTypeData = PWSTR(buffer.as_mut_ptr());
+        info.cch = buffer.len() as u32;
+        if GetMenuItemInfoW(menu, index, true, &mut info).is_err() {
+            return String::new();
+        }
+
+        let len = buffer.iter().position(|value| *value == 0).unwrap_or(buffer.len());
+        clean_native_menu_label(&String::from_utf16_lossy(&buffer[..len]))
+    }
+
+    fn clean_native_menu_label(label: &str) -> String {
+        label
+            .split('\t')
+            .next()
+            .unwrap_or(label)
+            .replace("&&", "\u{0}")
+            .replace('&', "")
+            .replace('\u{0}', "&")
+            .trim()
+            .to_string()
+    }
+
+    fn collapse_menu_separators(items: Vec<NativeContextMenuItem>) -> Vec<NativeContextMenuItem> {
+        let mut collapsed = Vec::new();
+        let mut previous_separator = true;
+
+        for item in items {
+            if item.separator {
+                if !previous_separator {
+                    collapsed.push(item);
+                }
+                previous_separator = true;
+                continue;
+            }
+
+            previous_separator = false;
+            collapsed.push(item);
+        }
+
+        while collapsed.last().is_some_and(|item: &NativeContextMenuItem| item.separator) {
+            collapsed.pop();
+        }
+
+        collapsed
+    }
+
+    unsafe fn invoke_context_menu_command(
+        context_menu: &IContextMenu,
+        owner: HWND,
+        command_id: usize,
+    ) -> Result<NativeContextMenuResult, String> {
+        let canonical_verb = context_menu_command_verb(context_menu, command_id);
+        if canonical_verb.as_deref() == Some("rename") {
+            return Ok(NativeContextMenuResult {
+                invoked: true,
+                verb: canonical_verb,
+            });
+        }
+
+        let _ = SetForegroundWindow(owner);
+        let verb = command_id as *const u8;
+        let invoke = CMINVOKECOMMANDINFO {
+            cbSize: std::mem::size_of::<CMINVOKECOMMANDINFO>() as u32,
+            hwnd: owner,
+            lpVerb: PCSTR(verb),
+            nShow: SW_SHOWNORMAL.0,
+            ..Default::default()
+        };
+
+        context_menu
+            .InvokeCommand(&invoke)
+            .map_err(|error| format!("IContextMenu InvokeCommand failed: {error}"))?;
+
+        Ok(NativeContextMenuResult {
+            invoked: true,
+            verb: canonical_verb,
+        })
+    }
+
     unsafe fn show_context_menu(
         context_menu: IContextMenu,
         owner: HWND,
@@ -1211,32 +1487,9 @@ mod platform {
         }
 
         let command_id = command.saturating_sub(first_command) as usize;
-        let canonical_verb = context_menu_command_verb(&context_menu, command_id);
-        if canonical_verb.as_deref() == Some("rename") {
-            let _ = DestroyMenu(menu);
-            return Ok(NativeContextMenuResult {
-                invoked: true,
-                verb: canonical_verb,
-            });
-        }
-
-        let verb = command_id as *const u8;
-        let invoke = CMINVOKECOMMANDINFO {
-            cbSize: std::mem::size_of::<CMINVOKECOMMANDINFO>() as u32,
-            hwnd: owner,
-            lpVerb: PCSTR(verb),
-            nShow: SW_SHOWNORMAL.0,
-            ..Default::default()
-        };
-
-        let invoke_result = context_menu.InvokeCommand(&invoke);
+        let invoke_result = invoke_context_menu_command(&context_menu, owner, command_id);
         let _ = DestroyMenu(menu);
-        invoke_result.map_err(|error| format!("IContextMenu InvokeCommand failed: {error}"))?;
-
-        Ok(NativeContextMenuResult {
-            invoked: true,
-            verb: canonical_verb,
-        })
+        invoke_result
     }
 
     unsafe fn cursor_point_or_client_point_to_screen(owner: HWND, x: i32, y: i32) -> POINT {

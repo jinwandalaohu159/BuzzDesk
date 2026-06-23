@@ -3,6 +3,7 @@ import type {
   AppProcessPriority,
   DesktopDiagnostics,
   DesktopSourceItem,
+  NativeContextMenuItem,
   NativeContextMenuResult
 } from "../types";
 import { applyCachedIcons, rememberIconImages } from "./iconCache";
@@ -211,15 +212,23 @@ export async function showNativeItemContextMenu(item: AppNode, x: number, y: num
   return normalizeNativeContextMenuResult(result);
 }
 
-export async function showNativeDesktopContextMenu(x: number, y: number) {
+export async function listNativeDesktopContextMenu() {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return [] as NativeContextMenuItem[];
+  }
+
+  return invoke<NativeContextMenuItem[]>("list_native_desktop_context_menu");
+}
+
+export async function invokeNativeDesktopContextMenuCommand(commandId: number) {
   const invoke = await getInvoke();
   if (!invoke) {
     return { invoked: false, verb: null };
   }
 
-  const result = await invoke<boolean | NativeContextMenuResult>("show_native_desktop_context_menu", {
-    x: Math.round(x),
-    y: Math.round(y)
+  const result = await invoke<boolean | NativeContextMenuResult>("invoke_native_desktop_context_menu_command", {
+    commandId
   });
   return normalizeNativeContextMenuResult(result);
 }

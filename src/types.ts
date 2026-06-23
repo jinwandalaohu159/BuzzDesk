@@ -55,6 +55,15 @@ export interface NativeContextMenuResult {
   verb?: string | null;
 }
 
+export interface NativeContextMenuItem {
+  label: string;
+  commandId?: number | null;
+  disabled?: boolean;
+  checked?: boolean;
+  separator?: boolean;
+  submenu?: NativeContextMenuItem[];
+}
+
 export type DesktopContextMenuAction =
   | "open"
   | "copy"
@@ -64,6 +73,7 @@ export type DesktopContextMenuAction =
   | "rename"
   | "delete"
   | "properties"
+  | "settings"
   | "folderRatio"
   | "folderIconSmall"
   | "folderIconMedium"

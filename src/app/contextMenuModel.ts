@@ -1,19 +1,44 @@
-import type { DesktopContextMenuAction, DesktopNode, AppNode, FolderCoverSize } from "../types";
+import type { DesktopContextMenuAction, DesktopNode, AppNode, FolderCoverSize, NativeContextMenuItem } from "../types";
 
 export interface ContextMenuItemModel {
   action?: DesktopContextMenuAction;
+  nativeCommandId?: number;
   label: string;
   disabled?: boolean;
   checked?: boolean;
+  separator?: boolean;
   submenu?: ContextMenuItemModel[];
 }
 
-export function desktopFallbackMenuItems(): ContextMenuItemModel[] {
+function desktopFallbackMenuItems(): ContextMenuItemModel[] {
   return [
     { action: "refresh", label: "刷新" },
     { action: "paste", label: "粘贴" },
     { action: "newFolder", label: "新建文件夹" }
   ];
+}
+
+export function desktopMenuItems(nativeItems: NativeContextMenuItem[] = []): ContextMenuItemModel[] {
+  const items = nativeItems.length > 0
+    ? nativeItems.map(nativeContextMenuItem)
+    : desktopFallbackMenuItems();
+
+  return [
+    ...items,
+    { label: "", separator: true },
+    { action: "settings", label: "设置" }
+  ];
+}
+
+function nativeContextMenuItem(item: NativeContextMenuItem): ContextMenuItemModel {
+  return {
+    label: item.label,
+    nativeCommandId: item.commandId ?? undefined,
+    disabled: item.disabled,
+    checked: item.checked,
+    separator: item.separator,
+    submenu: item.submenu?.map(nativeContextMenuItem)
+  };
 }
 
 export function itemFallbackMenuItems(node: DesktopNode | AppNode | null, context: "desktop" | "folder") {

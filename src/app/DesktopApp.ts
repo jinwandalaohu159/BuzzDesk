@@ -2,7 +2,7 @@ import { captureRects, playFlip } from "../animation/flip";
 import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../animation/drag";
 import { playFolderClose, playFolderOpen } from "../animation/folderPanel";
 import { playFolderBirth, playMergeGroupIntoTarget, playMergeIntoTarget } from "../animation/merge";
-import { desktopFallbackMenuItems, itemFallbackMenuItems, folderContextMenuItems } from "./contextMenuModel";
+import { desktopMenuItems, itemFallbackMenuItems, folderContextMenuItems } from "./contextMenuModel";
 import { computeDesktopLayout, desktopIndexForPoint, panelSizeFor } from "../layout/grid";
 import {
   renderContextMenu,
@@ -45,7 +45,8 @@ import {
   scanDesktopItems,
   setAppProcessPriority,
   showDesktopItemProperties,
-  showNativeDesktopContextMenu,
+  invokeNativeDesktopContextMenuCommand,
+  listNativeDesktopContextMenu,
   showNativeItemContextMenu
 } from "../system/desktopApi";
 import { desktopViewport } from "../system/desktopViewport";
@@ -61,6 +62,7 @@ import type {
   FolderAppearanceSettings,
   FolderNode,
   LayoutSlot,
+  NativeContextMenuItem,
   SettingsView
 } from "../types";
 
@@ -148,7 +150,7 @@ interface MarqueeSelection {
 }
 
 type ContextMenuState =
-  | { type: "desktop"; x: number; y: number }
+  | { type: "desktop"; x: number; y: number; nativeItems?: NativeContextMenuItem[] }
   | { type: "item"; x: number; y: number; nodeId: string }
   | { type: "folderItem"; x: number; y: number; folderId: string; childId: string };
 
@@ -204,6 +206,8 @@ export class DesktopApp {
   private settingsPreviewFrame: number | null = null;
   private pendingSettingsPreview: (() => void) | null = null;
   private contextOverlayVersion = 0;
+  private cachedDesktopNativeMenuItems: NativeContextMenuItem[] | null = null;
+  private desktopNativeMenuLoad: Promise<NativeContextMenuItem[]> | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -277,6 +281,7 @@ export class DesktopApp {
       await this.logDesktopDiagnostics("desktop layer shown");
       this.startDesktopAutoSync();
       this.scheduleFullDesktopItemLoad();
+      window.setTimeout(() => void this.loadNativeDesktopMenuItems(), 300);
     } catch (error) {
       console.error("Desktop layer failed to boot", error);
       await this.logDesktopDiagnostics("boot failed");
@@ -618,7 +623,7 @@ export class DesktopApp {
     let items;
 
     if (this.contextMenu.type === "desktop") {
-      items = desktopFallbackMenuItems();
+      items = desktopMenuItems(this.contextMenu.nativeItems);
     } else if (node?.type === "folder") {
       items = folderContextMenuItems(node.appearance.folderCoverSize);
     } else {
@@ -629,9 +634,92 @@ export class DesktopApp {
       renderContextMenu({
         x: this.contextMenu.x,
         y: this.contextMenu.y,
-        items
+        items,
+        bounds: this.contextMenuSafeArea()
       })
     );
+    this.clampContextSubmenus();
+  }
+
+  private clampContextSubmenus() {
+    const bounds = this.contextMenuSafeArea();
+    const submenuGap = 4;
+    this.contextMenuLayer.querySelectorAll<HTMLElement>(".context-menu-item.has-submenu").forEach((item) => {
+      const submenu = Array.from(item.children).find(
+        (child): child is HTMLElement =>
+          child instanceof HTMLElement && child.classList.contains("context-submenu")
+      );
+      if (!submenu) {
+        return;
+      }
+
+      const previousDisplay = submenu.style.display;
+      const previousVisibility = submenu.style.visibility;
+      const previousPointerEvents = submenu.style.pointerEvents;
+      item.classList.remove("opens-left");
+      submenu.classList.remove("is-left");
+      submenu.style.display = "grid";
+      submenu.style.visibility = "hidden";
+      submenu.style.pointerEvents = "none";
+
+      const itemRect = item.getBoundingClientRect();
+      let submenuRect = submenu.getBoundingClientRect();
+      if (
+        submenuRect.right > bounds.right &&
+        itemRect.left - submenuRect.width - submenuGap >= bounds.left
+      ) {
+        item.classList.add("opens-left");
+        submenu.classList.add("is-left");
+        submenuRect = submenu.getBoundingClientRect();
+      }
+
+      let top = Number.parseFloat(submenu.style.top);
+      if (!Number.isFinite(top)) {
+        top = 0;
+      }
+
+      const bottomOverflow = submenuRect.bottom - bounds.bottom;
+      if (bottomOverflow > 0) {
+        top -= bottomOverflow;
+      }
+
+      const projectedTop = itemRect.top + top;
+      if (projectedTop < bounds.top) {
+        top += bounds.top - projectedTop;
+      }
+
+      submenu.style.top = `${Math.round(top)}px`;
+      submenu.style.display = previousDisplay;
+      submenu.style.visibility = previousVisibility;
+      submenu.style.pointerEvents = previousPointerEvents;
+    });
+  }
+
+  private contextMenuSafeArea() {
+    const edge = 8;
+    const fallback = {
+      left: edge,
+      top: edge,
+      right: Math.max(edge, window.innerWidth - edge),
+      bottom: Math.max(edge, window.innerHeight - edge)
+    };
+    const screen = window.screen as Screen & { availLeft?: number; availTop?: number };
+    const availLeft = Number.isFinite(screen.availLeft) ? Number(screen.availLeft) : window.screenX;
+    const availTop = Number.isFinite(screen.availTop) ? Number(screen.availTop) : window.screenY;
+    const availWidth = Number.isFinite(screen.availWidth) ? screen.availWidth : window.innerWidth;
+    const availHeight = Number.isFinite(screen.availHeight) ? screen.availHeight : window.innerHeight;
+    const screenX = Number.isFinite(window.screenX) ? window.screenX : 0;
+    const screenY = Number.isFinite(window.screenY) ? window.screenY : 0;
+    const left = Math.max(fallback.left, Math.round(availLeft - screenX + edge));
+    const top = Math.max(fallback.top, Math.round(availTop - screenY + edge));
+    const right = Math.min(fallback.right, Math.round(availLeft + availWidth - screenX - edge));
+    const bottom = Math.min(fallback.bottom, Math.round(availTop + availHeight - screenY - edge));
+
+    if (right - left < 240 || bottom - top < 160) {
+      return fallback;
+    }
+
+    return { left, top, right, bottom };
   }
 
   private desktopSelectionForRender() {
@@ -972,7 +1060,7 @@ export class DesktopApp {
     this.clearDesktopSelection();
     this.contextMenu = null;
     this.render();
-    void this.openNativeDesktopContextMenu(event.clientX, event.clientY);
+    void this.openCustomDesktopContextMenu(event.clientX, event.clientY);
   }
 
   private onFolderPointerDown(event: PointerEvent) {
@@ -2559,9 +2647,10 @@ export class DesktopApp {
       return;
     }
 
-    const action = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-context-action]")?.dataset
-      .contextAction as DesktopContextMenuAction | undefined;
-    if (!action || !this.contextMenu) {
+    const button = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-context-action], [data-native-command-id]");
+    const action = button?.dataset.contextAction as DesktopContextMenuAction | undefined;
+    const nativeCommandId = Number(button?.dataset.nativeCommandId);
+    if ((!action && !Number.isFinite(nativeCommandId)) || !this.contextMenu) {
       return;
     }
 
@@ -2569,6 +2658,14 @@ export class DesktopApp {
     this.closeContextMenu();
 
     try {
+      if (Number.isFinite(nativeCommandId) && menu.type === "desktop") {
+        const result = await invokeNativeDesktopContextMenuCommand(nativeCommandId);
+        if (result.invoked) {
+          await this.syncAfterNativeShellCommand();
+        }
+        return;
+      }
+
       if (action === "refresh") {
         await this.refreshDesktopItems();
         return;
@@ -2583,6 +2680,13 @@ export class DesktopApp {
       if (action === "newFolder") {
         await createDesktopFolder();
         await this.refreshDesktopItems();
+        return;
+      }
+
+      if (action === "settings") {
+        this.settingsOpen = true;
+        this.settingsView = "main";
+        this.renderSettingsLayer();
         return;
       }
 
@@ -3253,27 +3357,56 @@ export class DesktopApp {
     }
   }
 
-  private async openNativeDesktopContextMenu(x: number, y: number) {
+  private async openCustomDesktopContextMenu(x: number, y: number) {
     const requestVersion = this.beginContextOverlayRequest();
+    if (this.cachedDesktopNativeMenuItems) {
+      this.contextMenu = {
+        type: "desktop",
+        x,
+        y,
+        nativeItems: this.cachedDesktopNativeMenuItems
+      };
+      this.renderContextMenu();
+      void this.loadNativeDesktopMenuItems().catch((error) => {
+        console.warn("Unable to refresh native desktop context menu", error);
+      });
+      return;
+    }
 
     try {
-      const result = await showNativeDesktopContextMenu(x, y);
+      const nativeItems = await this.loadNativeDesktopMenuItems();
       if (!this.isCurrentContextOverlayRequest(requestVersion)) {
         return;
       }
 
-      if (result.invoked) {
-        await this.syncAfterNativeShellCommand();
-      }
+      this.contextMenu = { type: "desktop", x, y, nativeItems };
+      this.renderContextMenu();
     } catch (error) {
       if (!this.isCurrentContextOverlayRequest(requestVersion)) {
         return;
       }
 
-      console.warn("Unable to open native desktop context menu", error);
+      console.warn("Unable to list native desktop context menu", error);
       this.contextMenu = { type: "desktop", x, y };
       this.renderContextMenu();
     }
+  }
+
+  private loadNativeDesktopMenuItems() {
+    if (this.desktopNativeMenuLoad) {
+      return this.desktopNativeMenuLoad;
+    }
+
+    this.desktopNativeMenuLoad = listNativeDesktopContextMenu()
+      .then((items) => {
+        this.cachedDesktopNativeMenuItems = items;
+        return items;
+      })
+      .finally(() => {
+        this.desktopNativeMenuLoad = null;
+      });
+
+    return this.desktopNativeMenuLoad;
   }
 
   private activateDesktopNode(nodeId: string, element: HTMLElement) {
