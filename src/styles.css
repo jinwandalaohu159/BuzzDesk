@@ -1257,6 +1257,8 @@ input {
 .settings-menu-more-marker {
   grid-template-columns: minmax(0, 1fr) auto;
   margin-top: 6px;
+  padding-left: 16px;
+  padding-right: 16px;
   color: var(--settings-muted-text);
   background: var(--settings-surface-bg);
 }
