@@ -1122,6 +1122,10 @@ input {
   min-width: 0;
 }
 
+.settings-menu-item-meta.has-submenu {
+  cursor: pointer;
+}
+
 .settings-menu-item-meta > span {
   color: var(--settings-title-text);
   font-size: 13px;

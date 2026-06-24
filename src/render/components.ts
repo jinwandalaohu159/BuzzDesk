@@ -34,6 +34,7 @@ interface SettingsContextMenuItem {
   source: "native" | "action";
   placement: DesktopContextMenuPlacement;
   separatorAfter: boolean;
+  submenuCount: number;
 }
 
 interface FolderPageRenderOptions {
@@ -295,6 +296,8 @@ export function renderSettingsLayer(options: {
   systemIconItems?: AppNode[];
   systemIconAddOpen?: boolean;
   contextMenuItems?: SettingsContextMenuItem[];
+  contextMenuTitle?: string;
+  contextMenuParentLabel?: string | null;
   animate?: boolean;
 }) {
   const { settings, view } = options;
@@ -316,7 +319,7 @@ export function renderSettingsLayer(options: {
   header.className = "settings-header";
 
   const title = document.createElement("h2");
-  title.textContent = settingsTitle(view);
+  title.textContent = options.contextMenuTitle ?? settingsTitle(view);
 
   const close = document.createElement("button");
   close.className = "settings-close";
@@ -358,7 +361,8 @@ export function renderSettingsLayer(options: {
     ...renderSettingsControls(settings, view, {
       systemIconItems: options.systemIconItems ?? [],
       systemIconAddOpen: options.systemIconAddOpen === true,
-      contextMenuItems: options.contextMenuItems ?? []
+      contextMenuItems: options.contextMenuItems ?? [],
+      contextMenuParentLabel: options.contextMenuParentLabel ?? null
     })
   );
 
@@ -389,6 +393,7 @@ function renderSettingsControls(
     systemIconItems: AppNode[];
     systemIconAddOpen: boolean;
     contextMenuItems: SettingsContextMenuItem[];
+    contextMenuParentLabel: string | null;
   }
 ) {
   if (view === "layout") {
@@ -409,7 +414,7 @@ function renderSettingsControls(
   }
 
   if (view === "contextMenu") {
-    return renderContextMenuSettingsControls(options.contextMenuItems);
+    return renderContextMenuSettingsControls(options.contextMenuItems, options.contextMenuParentLabel);
   }
 
   return [
@@ -568,7 +573,7 @@ function renderSettingsToggleRow(options: {
   return row;
 }
 
-function renderContextMenuSettingsControls(items: SettingsContextMenuItem[]) {
+function renderContextMenuSettingsControls(items: SettingsContextMenuItem[], parentLabel: string | null) {
   const section = document.createElement("section");
   section.className = "settings-menu-manager";
 
@@ -577,8 +582,14 @@ function renderContextMenuSettingsControls(items: SettingsContextMenuItem[]) {
   const hiddenItems = items.filter((item) => item.placement === "hidden");
 
   section.append(
-    renderContextMenuEditorList("\u4e3b\u83dc\u5355", "\u76f4\u63a5\u53f3\u952e\u65f6\u663e\u793a", mainItems, "main", moreItems.length),
-    renderContextMenuEditorList("\u663e\u793a\u66f4\u591a\u9009\u9879", "\u6536\u8d77\u5728\u53f3\u952e\u83dc\u5355\u7684\u4e8c\u7ea7\u91cc", moreItems, "more"),
+    renderContextMenuEditorList(
+      parentLabel ? "\u5f53\u524d\u83dc\u5355" : "\u4e3b\u83dc\u5355",
+      parentLabel ? `${parentLabel} \u7684\u4e8c\u7ea7\u83dc\u5355` : "\u76f4\u63a5\u53f3\u952e\u65f6\u663e\u793a",
+      mainItems,
+      "main",
+      moreItems.length
+    ),
+    renderContextMenuEditorList("\u663e\u793a\u66f4\u591a\u9009\u9879", "\u6536\u8d77\u5728\u8fd9\u4e00\u7ea7\u83dc\u5355\u91cc", moreItems, "more"),
     renderContextMenuPoolList(hiddenItems)
   );
 
@@ -685,6 +696,10 @@ function renderContextMenuEditorItem(
 
   const meta = document.createElement("span");
   meta.className = "settings-menu-item-meta";
+  if (item.submenuCount > 0) {
+    meta.dataset.settingContextMenuSubmenu = item.key;
+    meta.classList.add("has-submenu");
+  }
 
   const label = document.createElement("span");
   label.textContent = item.label;
@@ -698,6 +713,9 @@ function renderContextMenuEditorItem(
   const hideLabel = currentPlacement === "main" ? "\u9690\u85cf" : "\u663e\u793a";
   const hideTitle = currentPlacement === "main" ? "\u653e\u5230\u663e\u793a\u66f4\u591a\u9009\u9879" : "\u653e\u5230\u4e3b\u83dc\u5355";
   const hidePlacement = currentPlacement === "main" ? "more" : "main";
+  if (item.submenuCount > 0) {
+    actions.append(renderContextMenuSubmenuButton(item));
+  }
   actions.append(
     renderContextMenuSettingsButton(item.key, hideLabel, hideTitle, { placement: hidePlacement }),
     renderContextMenuSettingsButton(item.key, "\u5220\u9664", "\u79fb\u5230\u5f85\u6dfb\u52a0", { placement: "hidden" })
@@ -705,6 +723,15 @@ function renderContextMenuEditorItem(
 
   row.append(handle, meta, actions);
   return row;
+}
+
+function renderContextMenuSubmenuButton(item: SettingsContextMenuItem) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.title = "\u914d\u7f6e\u8fd9\u4e2a\u4e8c\u7ea7\u83dc\u5355";
+  button.textContent = `${item.submenuCount}\u9879`;
+  button.dataset.settingContextMenuSubmenu = item.key;
+  return button;
 }
 
 function renderContextMenuPoolItem(item: SettingsContextMenuItem) {
@@ -1193,6 +1220,11 @@ function renderContextMenuButton(item: RenderContextMenuItem, hasSubmenu = false
     button.classList.add("has-submenu");
   }
 
+  const accessKey = contextMenuAccessKey(item.label);
+  if (accessKey) {
+    button.dataset.contextAccessKey = accessKey;
+  }
+
   if (item.checked) {
     button.classList.add("is-checked");
   }
@@ -1202,6 +1234,11 @@ function renderContextMenuButton(item: RenderContextMenuItem, hasSubmenu = false
   label.textContent = item.checked ? `\u2713 ${item.label}` : item.label;
   button.append(label);
   return button;
+}
+
+function contextMenuAccessKey(label: string) {
+  const match = label.match(/\((?:&)?([a-z0-9])\)/i) ?? label.match(/&([a-z0-9])/i);
+  return match?.[1]?.toLowerCase() ?? "";
 }
 
 export function renderRatioDialog(options: {

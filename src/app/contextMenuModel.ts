@@ -24,10 +24,12 @@ export interface ContextMenuItemModel {
 
 export interface DesktopContextMenuPoolItem {
   key: string;
+  parentKey: string | null;
   source: DesktopContextMenuSource;
   label: string;
   group: number;
   order: number;
+  submenuCount: number;
   item: ContextMenuItemModel;
 }
 
@@ -41,34 +43,42 @@ const defaultMainNativeLimit = 9;
 const desktopActionItems: DesktopContextMenuPoolItem[] = [
   {
     key: "action:refresh",
+    parentKey: null,
     source: "action",
     label: "刷新",
     group: 80,
     order: 0,
+    submenuCount: 0,
     item: { key: "action:refresh", source: "action", action: "refresh", label: "刷新" }
   },
   {
     key: "action:paste",
+    parentKey: null,
     source: "action",
     label: "粘贴",
     group: 80,
     order: 1,
+    submenuCount: 0,
     item: { key: "action:paste", source: "action", action: "paste", label: "粘贴" }
   },
   {
     key: "action:newFolder",
+    parentKey: null,
     source: "action",
     label: "新建文件夹",
     group: 80,
     order: 2,
+    submenuCount: 0,
     item: { key: "action:newFolder", source: "action", action: "newFolder", label: "新建文件夹" }
   },
   {
     key: "action:settings",
+    parentKey: null,
     source: "action",
     label: "设置",
     group: 90,
     order: 0,
+    submenuCount: 0,
     item: { key: "action:settings", source: "action", action: "settings", label: "设置" }
   }
 ];
@@ -83,16 +93,17 @@ function desktopFallbackMenuItems(): ContextMenuItemModel[] {
   ];
 }
 
-export function desktopContextMenuPool(nativeItems: NativeContextMenuItem[] = []) {
-  const nativePool = nativeItems.length > 0 ? nativeContextMenuPool(nativeItems) : [];
-  return [...nativePool, ...desktopActionItems];
+export function desktopContextMenuPool(nativeItems: NativeContextMenuItem[] = [], parentKey: string | null = null) {
+  const nativePool = nativeItems.length > 0 ? nativeContextMenuPool(nativeItems, parentKey) : [];
+  return parentKey ? nativePool : [...nativePool, ...desktopActionItems];
 }
 
 export function desktopContextMenuSettingsItems(
   nativeItems: NativeContextMenuItem[] = [],
-  settings: DesktopContextMenuSettings
+  settings: DesktopContextMenuSettings,
+  parentKey: string | null = null
 ): DesktopContextMenuSettingsItem[] {
-  const pool = desktopContextMenuPool(nativeItems);
+  const pool = desktopContextMenuPool(nativeItems, parentKey);
   const layout = resolveContextMenuLayout(pool, settings);
   const items = pool
     .map((item) => {
@@ -124,10 +135,18 @@ export function desktopMenuItems(
     return desktopFallbackMenuItems();
   }
 
-  const pool = desktopContextMenuPool(nativeItems);
+  return menuItemsForParent(nativeItems, settings, null);
+}
+
+function menuItemsForParent(
+  nativeItems: NativeContextMenuItem[],
+  settings: DesktopContextMenuSettings | undefined,
+  parentKey: string | null
+): ContextMenuItemModel[] {
+  const pool = desktopContextMenuPool(nativeItems, parentKey);
   const layout = resolveContextMenuLayout(pool, settings);
-  const mainItems = menuItemsForPlacement(pool, layout, "main");
-  const moreItems = menuItemsForPlacement(pool, layout, "more");
+  const mainItems = menuItemsForPlacement(pool, layout, "main", nativeItems, settings);
+  const moreItems = menuItemsForPlacement(pool, layout, "more", nativeItems, settings);
 
   if (moreItems.length > 0) {
     if (mainItems.length > 0 && !mainItems[mainItems.length - 1]?.separator) {
@@ -148,9 +167,10 @@ export function updateContextMenuItemPlacement(
   settings: DesktopContextMenuSettings,
   nativeItems: NativeContextMenuItem[],
   key: string,
-  placement: DesktopContextMenuPlacement
+  placement: DesktopContextMenuPlacement,
+  parentKey: string | null = null
 ): DesktopContextMenuSettings {
-  const pool = desktopContextMenuPool(nativeItems);
+  const pool = desktopContextMenuPool(nativeItems, parentKey);
   const layout = resolveContextMenuLayout(pool, settings);
   const current = layout.get(key);
   const poolItem = pool.find((item) => item.key === key);
@@ -160,21 +180,23 @@ export function updateContextMenuItemPlacement(
 
   layout.set(key, {
     key,
+    parentKey,
     source: poolItem.source,
     placement,
     order: current?.placement === placement ? current.order : nextPlacementOrder(layout, placement),
     group: current?.placement === placement ? current.group : targetPlacementGroup(layout, placement, poolItem.group)
   });
 
-  return { items: [...layout.values()] };
+  return mergeContextMenuLayout(settings, layout, parentKey);
 }
 
 export function toggleContextMenuSeparator(
   settings: DesktopContextMenuSettings,
   nativeItems: NativeContextMenuItem[],
-  key: string
+  key: string,
+  parentKey: string | null = null
 ): DesktopContextMenuSettings {
-  const pool = desktopContextMenuPool(nativeItems);
+  const pool = desktopContextMenuPool(nativeItems, parentKey);
   const layout = resolveContextMenuLayout(pool, settings);
   const current = layout.get(key);
   if (!current || current.placement === "hidden") {
@@ -199,7 +221,7 @@ export function toggleContextMenuSeparator(
 
   writeOrderedPeers(layout, peers, breaks);
 
-  return { items: [...layout.values()] };
+  return mergeContextMenuLayout(settings, layout, parentKey);
 }
 
 export function reorderContextMenuItem(
@@ -208,9 +230,10 @@ export function reorderContextMenuItem(
   key: string,
   targetKey: string | null,
   placement: Exclude<DesktopContextMenuPlacement, "hidden">,
-  position: "before" | "after" | "end"
+  position: "before" | "after" | "end",
+  parentKey: string | null = null
 ): DesktopContextMenuSettings {
-  const pool = desktopContextMenuPool(nativeItems);
+  const pool = desktopContextMenuPool(nativeItems, parentKey);
   const layout = resolveContextMenuLayout(pool, settings);
   const dragged = layout.get(key);
   if (!dragged || dragged.placement !== placement) {
@@ -235,19 +258,20 @@ export function reorderContextMenuItem(
   const insertIndex = position === "after" ? targetIndex + 1 : position === "before" ? targetIndex : peers.length;
   peers.splice(Math.min(peers.length, insertIndex), 0, draggedItem);
   writeOrderedPeers(layout, peers, breaks);
-  return { items: [...layout.values()] };
+  return mergeContextMenuLayout(settings, layout, parentKey);
 }
 
 export function resetContextMenuSettings(): DesktopContextMenuSettings {
   return { items: [] };
 }
 
-function nativeContextMenuPool(nativeItems: NativeContextMenuItem[]) {
+function nativeContextMenuPool(nativeItems: NativeContextMenuItem[], parentKey: string | null) {
   let group = 0;
   let order = 0;
   const pool: DesktopContextMenuPoolItem[] = [];
+  const items = parentKey ? findNativeContextMenuItem(nativeItems, parentKey)?.submenu ?? [] : nativeItems;
 
-  nativeItems.forEach((item) => {
+  items.forEach((item) => {
     if (item.separator) {
       group += 1;
       order = 0;
@@ -261,10 +285,12 @@ function nativeContextMenuPool(nativeItems: NativeContextMenuItem[]) {
 
     pool.push({
       key: model.key ?? nativeContextMenuItemKey(item),
+      parentKey,
       source: "native",
       label: model.label,
       group,
       order,
+      submenuCount: model.submenu?.filter((child) => !child.separator).length ?? 0,
       item: model
     });
     order += 1;
@@ -299,6 +325,21 @@ function nativeContextMenuItemKey(item: NativeContextMenuItem) {
   return `native:label:${item.label}`;
 }
 
+function findNativeContextMenuItem(items: NativeContextMenuItem[], key: string): NativeContextMenuItem | null {
+  for (const item of items) {
+    if (!item.separator && nativeContextMenuItemKey(item) === key) {
+      return item;
+    }
+
+    const match = item.submenu?.length ? findNativeContextMenuItem(item.submenu, key) : null;
+    if (match) {
+      return match;
+    }
+  }
+
+  return null;
+}
+
 function resolveContextMenuLayout(
   pool: DesktopContextMenuPoolItem[],
   settings?: DesktopContextMenuSettings
@@ -307,16 +348,22 @@ function resolveContextMenuLayout(
     return defaultContextMenuLayout(pool);
   }
 
-  const saved = new Map(settings.items.map((item) => [item.key, item]));
+  const saved = new Map(settings.items.map((item) => [contextMenuLayoutMapKey(item.parentKey ?? null, item.key), item]));
   const layout = new Map<string, DesktopContextMenuLayoutItem>();
+  let visibleNativeCount = 0;
 
   pool.forEach((item) => {
-    const savedItem = saved.get(item.key);
+    const savedItem = saved.get(contextMenuLayoutMapKey(item.parentKey, item.key));
+    const defaultPlacement = defaultContextMenuPlacement(item, visibleNativeCount);
+    if (item.source === "native" && !item.parentKey) {
+      visibleNativeCount += 1;
+    }
     layout.set(item.key, savedItem ?? {
       key: item.key,
+      parentKey: item.parentKey,
       source: item.source,
-      placement: item.source === "native" ? "more" : item.key === "action:settings" ? "main" : "hidden",
-      order: nextPlacementOrder(layout, item.source === "native" ? "more" : "hidden"),
+      placement: defaultPlacement,
+      order: nextPlacementOrder(layout, defaultPlacement),
       group: item.group
     });
   });
@@ -329,18 +376,14 @@ function defaultContextMenuLayout(pool: DesktopContextMenuPoolItem[]) {
   let visibleNativeCount = 0;
 
   pool.forEach((item) => {
-    let placement: DesktopContextMenuPlacement = "hidden";
-    if (item.source === "native") {
-      placement = visibleNativeCount < defaultMainNativeLimit ? "main" : "more";
+    const placement = defaultContextMenuPlacement(item, visibleNativeCount);
+    if (item.source === "native" && !item.parentKey) {
       visibleNativeCount += 1;
-    } else if (item.key === "action:settings") {
-      placement = "main";
-    } else if (pool.every((poolItem) => poolItem.source !== "native")) {
-      placement = "main";
     }
 
     layout.set(item.key, {
       key: item.key,
+      parentKey: item.parentKey,
       source: item.source,
       placement,
       order: item.order,
@@ -351,10 +394,40 @@ function defaultContextMenuLayout(pool: DesktopContextMenuPoolItem[]) {
   return layout;
 }
 
+function defaultContextMenuPlacement(
+  item: DesktopContextMenuPoolItem,
+  visibleNativeCount = 0
+): DesktopContextMenuPlacement {
+  if (item.parentKey) {
+    return "main";
+  }
+
+  if (item.source === "native") {
+    return visibleNativeCount < defaultMainNativeLimit ? "main" : "more";
+  }
+
+  return item.key === "action:settings" ? "main" : "hidden";
+}
+
+function contextMenuLayoutMapKey(parentKey: string | null, key: string) {
+  return `${parentKey ?? ""}\u0000${key}`;
+}
+
+function mergeContextMenuLayout(
+  settings: DesktopContextMenuSettings,
+  layout: ReadonlyMap<string, DesktopContextMenuLayoutItem>,
+  parentKey: string | null
+): DesktopContextMenuSettings {
+  const items = settings.items.filter((item) => (item.parentKey ?? null) !== parentKey);
+  return { items: [...items, ...layout.values()] };
+}
+
 function menuItemsForPlacement(
   pool: DesktopContextMenuPoolItem[],
   layout: ReadonlyMap<string, DesktopContextMenuLayoutItem>,
-  placement: DesktopContextMenuPlacement
+  placement: DesktopContextMenuPlacement,
+  nativeItems: NativeContextMenuItem[],
+  settings?: DesktopContextMenuSettings
 ) {
   const byKey = new Map(pool.map((item) => [item.key, item]));
   const items = [...layout.values()]
@@ -371,11 +444,23 @@ function menuItemsForPlacement(
     if (previousGroup !== null && previousGroup !== item.layoutItem.group) {
       result.push({ label: "", separator: true });
     }
-    result.push(cloneMenuItem(item.poolItem.item));
+    result.push(contextMenuItemForPoolItem(item.poolItem, nativeItems, settings));
     previousGroup = item.layoutItem.group;
   });
 
   return collapseMenuSeparators(result);
+}
+
+function contextMenuItemForPoolItem(
+  poolItem: DesktopContextMenuPoolItem,
+  nativeItems: NativeContextMenuItem[],
+  settings?: DesktopContextMenuSettings
+) {
+  const item = cloneMenuItem(poolItem.item);
+  if (poolItem.source === "native" && poolItem.submenuCount > 0) {
+    item.submenu = menuItemsForParent(nativeItems, settings, poolItem.key);
+  }
+  return item;
 }
 
 function cloneMenuItem(item: ContextMenuItemModel): ContextMenuItemModel {

@@ -70,6 +70,7 @@ export interface NativeContextMenuItem {
 
 export interface DesktopContextMenuLayoutItem {
   key: string;
+  parentKey?: string | null;
   source: DesktopContextMenuSource;
   placement: DesktopContextMenuPlacement;
   order: number;

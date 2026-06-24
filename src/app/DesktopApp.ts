@@ -210,6 +210,8 @@ export class DesktopApp {
   private settingsOpen = false;
   private settingsView: SettingsView = "main";
   private renderedSettingsView: SettingsView | null = null;
+  private renderedSettingsContextMenuParentKey: string | null = null;
+  private settingsContextMenuParentKey: string | null = null;
   private settingsSystemIconAddOpen = false;
   private settingsPriorityMenuOpen = false;
   private settingsContextMenuDrag: SettingsContextMenuDragState | null = null;
@@ -584,7 +586,10 @@ export class DesktopApp {
 
   private renderSettingsLayer() {
     const wasOpen = this.settingsLayer.classList.contains("is-open");
-    const preserveScroll = wasOpen && this.renderedSettingsView === this.settingsView;
+    const preserveScroll =
+      wasOpen &&
+      this.renderedSettingsView === this.settingsView &&
+      this.renderedSettingsContextMenuParentKey === this.settingsContextMenuParentKey;
     const previousControls = this.settingsLayer.querySelector<HTMLElement>(".settings-controls");
     const scrollLeft = preserveScroll ? previousControls?.scrollLeft ?? 0 : 0;
     const scrollTop = preserveScroll ? previousControls?.scrollTop ?? 0 : 0;
@@ -593,7 +598,9 @@ export class DesktopApp {
     if (!this.settingsOpen) {
       this.settingsPriorityMenuOpen = false;
       this.settingsSystemIconAddOpen = false;
+      this.settingsContextMenuParentKey = null;
       this.renderedSettingsView = null;
+      this.renderedSettingsContextMenuParentKey = null;
       this.settingsLayer.classList.remove("is-settings-dark");
       this.settingsLayer.replaceChildren();
       return;
@@ -608,11 +615,14 @@ export class DesktopApp {
         view: this.settingsView,
         systemIconItems: this.store.getScannedItems().filter((item) => desktopSystemIconIdFromNodeId(item.id)),
         systemIconAddOpen: this.settingsSystemIconAddOpen,
-        contextMenuItems: this.contextMenuSettingsItems(),
+        contextMenuItems: this.contextMenuSettingsItems(this.settingsContextMenuParentKey),
+        contextMenuTitle: this.contextMenuSettingsTitle(),
+        contextMenuParentLabel: this.contextMenuParentLabel(),
         animate: !wasOpen
       })
     );
     this.renderedSettingsView = this.settingsView;
+    this.renderedSettingsContextMenuParentKey = this.settingsContextMenuParentKey;
     const nextControls = this.settingsLayer.querySelector<HTMLElement>(".settings-controls");
     if (nextControls) {
       nextControls.scrollLeft = scrollLeft;
@@ -655,11 +665,29 @@ export class DesktopApp {
     this.settingsLayer.append(popover);
   }
 
-  private contextMenuSettingsItems() {
+  private contextMenuSettingsItems(parentKey: string | null = null) {
     return desktopContextMenuSettingsItems(
       this.cachedDesktopNativeMenuItems ?? [],
-      this.store.getSettings().contextMenu
+      this.store.getSettings().contextMenu,
+      parentKey
     );
+  }
+
+  private contextMenuParentLabel() {
+    const parentKey = this.settingsContextMenuParentKey;
+    if (!parentKey) {
+      return null;
+    }
+
+    return this.contextMenuSettingsItems(null).find((item) => item.key === parentKey)?.label ?? null;
+  }
+
+  private contextMenuSettingsTitle() {
+    if (this.settingsView !== "contextMenu") {
+      return undefined;
+    }
+
+    return this.contextMenuParentLabel() ?? undefined;
   }
 
   private renderContextMenu() {
@@ -2368,6 +2396,7 @@ export class DesktopApp {
     const systemIconAddTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add-trigger]");
     const systemIconAddButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add]");
     const systemIconRemoveButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-remove]");
+    const contextMenuSubmenuTarget = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-context-menu-submenu]");
     const contextMenuPlacementButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-placement]");
     const contextMenuSeparatorButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-separator]");
     const contextMenuResetButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-reset]");
@@ -2391,9 +2420,18 @@ export class DesktopApp {
 
     const nextSettingsView = viewButton?.dataset.settingsView;
     if (isSettingsView(nextSettingsView)) {
+      if (this.settingsView === "contextMenu" && this.settingsContextMenuParentKey && nextSettingsView === "main") {
+        this.cancelSettingsPreview();
+        this.settingsPriorityMenuOpen = false;
+        this.settingsContextMenuParentKey = null;
+        this.renderSettingsLayer();
+        return;
+      }
+
       this.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       this.settingsSystemIconAddOpen = false;
+      this.settingsContextMenuParentKey = null;
       this.settingsView = nextSettingsView;
       this.renderSettingsLayer();
       if (nextSettingsView === "system") {
@@ -2446,6 +2484,17 @@ export class DesktopApp {
       return;
     }
 
+    if (contextMenuSubmenuTarget) {
+      const key = contextMenuSubmenuTarget.dataset.settingContextMenuSubmenu;
+      if (key) {
+        this.cancelSettingsPreview();
+        this.settingsPriorityMenuOpen = false;
+        this.settingsContextMenuParentKey = key;
+        this.renderSettingsLayer();
+      }
+      return;
+    }
+
     if (contextMenuPlacementButton) {
       const key = contextMenuPlacementButton.dataset.menuKey;
       const placement = contextMenuPlacementButton.dataset.settingContextMenuPlacement;
@@ -2456,7 +2505,8 @@ export class DesktopApp {
             this.store.getSettings().contextMenu,
             this.cachedDesktopNativeMenuItems ?? [],
             key,
-            placement
+            placement,
+            this.settingsContextMenuParentKey
           )
         });
       }
@@ -2471,7 +2521,8 @@ export class DesktopApp {
           contextMenu: toggleContextMenuSeparator(
             this.store.getSettings().contextMenu,
             this.cachedDesktopNativeMenuItems ?? [],
-            key
+            key,
+            this.settingsContextMenuParentKey
           )
         });
       }
@@ -2651,7 +2702,8 @@ export class DesktopApp {
         key,
         target.targetKey,
         placement,
-        target.position
+        target.position,
+        this.settingsContextMenuParentKey
       )
     });
   };
@@ -2953,13 +3005,7 @@ export class DesktopApp {
   private async onContextMenuClick(event: MouseEvent) {
     const submenuButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-context-submenu]");
     if (submenuButton) {
-      const item = submenuButton.closest<HTMLElement>(".context-menu-item");
-      this.contextMenuLayer.querySelectorAll(".context-menu-item.is-submenu-open").forEach((element) => {
-        if (element !== item) {
-          element.classList.remove("is-submenu-open");
-        }
-      });
-      item?.classList.toggle("is-submenu-open");
+      this.setContextSubmenuOpen(submenuButton, true);
       return;
     }
 
@@ -3137,6 +3183,64 @@ export class DesktopApp {
       event.preventDefault();
       this.closeRatioDialog();
     }
+  }
+
+  private handleContextMenuAccessKey(event: KeyboardEvent) {
+    if (!this.contextMenu || this.ratioDialogTargetId || event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) {
+      return false;
+    }
+
+    const key = event.key.toLowerCase();
+    const button = this.contextMenuAccessKeyButton(key);
+    if (!button) {
+      return false;
+    }
+
+    event.preventDefault();
+    event.stopPropagation();
+    if (button.dataset.contextSubmenu) {
+      this.setContextSubmenuOpen(button, false);
+    } else {
+      button.click();
+    }
+    return true;
+  }
+
+  private contextMenuAccessKeyButton(key: string) {
+    const root = this.contextMenuLayer.querySelector<HTMLElement>(".context-menu");
+    if (!root) {
+      return null;
+    }
+
+    const openSubmenus = Array.from(this.contextMenuLayer.querySelectorAll<HTMLElement>(".context-menu-item.is-submenu-open > .context-submenu"));
+    const scopes = [...openSubmenus.reverse(), root];
+    for (const scope of scopes) {
+      const button = directContextMenuButtons(scope).find(
+        (candidate) => candidate.dataset.contextAccessKey === key && !candidate.disabled
+      );
+      if (button) {
+        return button;
+      }
+    }
+
+    return null;
+  }
+
+  private setContextSubmenuOpen(button: HTMLButtonElement, toggle: boolean) {
+    const item = button.closest<HTMLElement>(".context-menu-item");
+    const parent = item?.parentElement;
+    if (!item || !parent) {
+      return;
+    }
+
+    Array.from(parent.children).forEach((child) => {
+      if (child !== item && child instanceof HTMLElement && child.classList.contains("context-menu-item")) {
+        child.classList.remove("is-submenu-open");
+      }
+    });
+
+    item.classList.toggle("is-submenu-open", toggle ? !item.classList.contains("is-submenu-open") : true);
+    this.clampContextSubmenus();
   }
 
   private findNode(id: string): DesktopNode | null {
@@ -3796,7 +3900,16 @@ export class DesktopApp {
       return;
     }
 
+    if (this.handleContextMenuAccessKey(event)) {
+      return;
+    }
+
     if (event.key === "Escape") {
+      if (this.contextMenu || this.ratioDialogTargetId) {
+        this.clearContextOverlay();
+        return;
+      }
+
       if (this.settingsOpen) {
         this.settingsOpen = false;
         this.renderSettingsLayer();
@@ -4405,6 +4518,19 @@ function sameSettingsContextMenuDropTarget(
   b: SettingsContextMenuDropTarget | null
 ) {
   return a?.list === b?.list && a?.row === b?.row && a?.targetKey === b?.targetKey && a?.position === b?.position;
+}
+
+function directContextMenuButtons(scope: HTMLElement) {
+  return Array.from(scope.children)
+    .map((child) => {
+      if (!(child instanceof HTMLElement) || !child.classList.contains("context-menu-item")) {
+        return null;
+      }
+
+      const button = child.firstElementChild;
+      return button instanceof HTMLButtonElement ? button : null;
+    })
+    .filter((button): button is HTMLButtonElement => Boolean(button));
 }
 
 function desktopItemsSignature(items: AppNode[]) {

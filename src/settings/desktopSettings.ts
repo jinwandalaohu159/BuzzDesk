@@ -165,6 +165,7 @@ function normalizeContextMenuLayoutItem(value: unknown): DesktopContextMenuLayou
 
   return {
     key: item.key,
+    parentKey: typeof item.parentKey === "string" && item.parentKey ? item.parentKey : null,
     source: normalizeContextMenuSource(item.source),
     placement: normalizeContextMenuPlacement(item.placement),
     order: clampNumber(item.order, 0, 9999, 0),
