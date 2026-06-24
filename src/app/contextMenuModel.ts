@@ -72,6 +72,16 @@ const desktopActionItems: DesktopContextMenuPoolItem[] = [
     item: { key: "action:newFolder", source: "action", action: "newFolder", label: "新建文件夹" }
   },
   {
+    key: "action:autoArrange",
+    parentKey: null,
+    source: "action",
+    label: "\u81ea\u52a8\u6392\u5217",
+    group: 85,
+    order: 0,
+    submenuCount: 0,
+    item: { key: "action:autoArrange", source: "action", action: "autoArrange", label: "\u81ea\u52a8\u6392\u5217" }
+  },
+  {
     key: "action:settings",
     parentKey: null,
     source: "action",
@@ -88,6 +98,7 @@ function desktopFallbackMenuItems(): ContextMenuItemModel[] {
     { key: "action:refresh", source: "action", action: "refresh", label: "刷新" },
     { key: "action:paste", source: "action", action: "paste", label: "粘贴" },
     { key: "action:newFolder", source: "action", action: "newFolder", label: "新建文件夹" },
+    { key: "action:autoArrange", source: "action", action: "autoArrange", label: "\u81ea\u52a8\u6392\u5217" },
     { label: "", separator: true },
     { key: "action:settings", source: "action", action: "settings", label: "设置" }
   ];
@@ -380,7 +391,7 @@ function defaultContextMenuPlacement(
     return visibleNativeCount < defaultMainNativeLimit ? "main" : "more";
   }
 
-  return item.key === "action:settings" ? "main" : "hidden";
+  return item.key === "action:settings" || item.key === "action:autoArrange" ? "main" : "hidden";
 }
 
 function contextMenuLayoutMapKey(parentKey: string | null, key: string) {

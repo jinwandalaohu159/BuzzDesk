@@ -701,7 +701,9 @@ export class DesktopApp {
     let items;
 
     if (this.contextMenu.type === "desktop") {
-      items = desktopMenuItems(this.contextMenu.nativeItems, this.store.getSettings().contextMenu);
+      items = this.decorateDesktopContextMenuItems(
+        desktopMenuItems(this.contextMenu.nativeItems, this.store.getSettings().contextMenu)
+      );
     } else if (node?.type === "folder") {
       items = folderContextMenuItems(node.appearance.folderCoverSize);
     } else {
@@ -717,6 +719,17 @@ export class DesktopApp {
       })
     );
     this.clampContextSubmenus();
+  }
+
+  private decorateDesktopContextMenuItems(
+    items: ReturnType<typeof desktopMenuItems>
+  ): ReturnType<typeof desktopMenuItems> {
+    const autoArrangeDisabled = this.store.getSettings().layoutMode !== "free";
+    return items.map((item) => ({
+      ...item,
+      disabled: item.action === "autoArrange" ? autoArrangeDisabled : item.disabled,
+      submenu: item.submenu ? this.decorateDesktopContextMenuItems(item.submenu) : undefined
+    }));
   }
 
   private clampContextSubmenus() {
@@ -2947,6 +2960,46 @@ export class DesktopApp {
     this.store.updateNodePositions(positions);
   }
 
+  private autoArrangeFreeDesktop() {
+    const nodes = this.store.getNodes();
+    const settings = this.store.getSettings();
+    if (settings.layoutMode !== "free" || nodes.length === 0) {
+      return;
+    }
+
+    const viewport = desktopViewport();
+    const arrangedSettings: DesktopSettings = { ...settings, layoutMode: "auto" };
+    const arrangedLayout = computeDesktopLayout(
+      nodes,
+      viewport.width,
+      viewport.height,
+      arrangedSettings,
+      viewport.offsetX,
+      viewport.offsetY
+    );
+    const positions = nodes
+      .map((node) => {
+        const slot = arrangedLayout.get(node.id);
+        if (!slot) {
+          return null;
+        }
+
+        return {
+          id: node.id,
+          position: this.clampedDesktopPosition(
+            slot.x - viewport.offsetX,
+            slot.y - viewport.offsetY,
+            slot.width,
+            slot.height,
+            viewport
+          )
+        };
+      })
+      .filter((entry): entry is { id: string; position: DesktopPosition } => Boolean(entry));
+
+    this.store.updateNodePositions(positions);
+  }
+
   private getSettingsValueSource(): DesktopSettings {
     return this.store.getSettings();
   }
@@ -3024,6 +3077,11 @@ export class DesktopApp {
 
       if (action === "refresh") {
         await this.refreshDesktopItems();
+        return;
+      }
+
+      if (action === "autoArrange") {
+        this.autoArrangeFreeDesktop();
         return;
       }
 

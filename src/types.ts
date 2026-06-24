@@ -87,6 +87,7 @@ export type DesktopContextMenuAction =
   | "paste"
   | "newFolder"
   | "refresh"
+  | "autoArrange"
   | "rename"
   | "delete"
   | "properties"
