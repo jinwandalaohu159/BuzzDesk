@@ -173,6 +173,7 @@ function computeFreeDesktopLayout(
   );
   const slots = new Map<string, LayoutSlot>();
   const occupied: LayoutSlot[] = [];
+  const base = desktopTileMetrics(settings);
   const unpositioned: Array<{ node: DesktopNode; tile: ReturnType<typeof desktopNodeTileMetrics>; fallback: LayoutSlot | null }> = [];
   let right = viewportWidth + viewportOffsetX * 2;
   let bottom = viewportHeight + viewportOffsetY * 2;
@@ -185,14 +186,27 @@ function computeFreeDesktopLayout(
       continue;
     }
 
-    const snapped = snapFreeLayoutPosition(node.position.x, node.position.y, tile, viewportWidth, viewportHeight, settings);
-    const slot = {
+    const clamped = clampFreeLayoutPosition(node.position.x, node.position.y, tile, viewportWidth, viewportHeight, settings);
+    const preferred = {
       id: node.id,
-      x: viewportOffsetX + snapped.x,
-      y: viewportOffsetY + snapped.y,
+      x: viewportOffsetX + clamped.x,
+      y: viewportOffsetY + clamped.y,
       width: tile.width,
       height: tile.height
     };
+    const slot = occupied.some((rect) => layoutRectsOverlapWithGap(preferred, rect, base.gapX, base.gapY))
+      ? findFreeLayoutSlot(
+          node.id,
+          tile,
+          preferred,
+          occupied,
+          viewportWidth,
+          viewportHeight,
+          settings,
+          viewportOffsetX,
+          viewportOffsetY
+        )
+      : preferred;
     slots.set(node.id, slot);
     occupied.push(slot);
     right = Math.max(right, slot.x + slot.width + viewportOffsetX);
@@ -223,7 +237,7 @@ function computeFreeDesktopLayout(
   return slots;
 }
 
-function snapFreeLayoutPosition(
+function clampFreeLayoutPosition(
   x: number,
   y: number,
   tile: ReturnType<typeof desktopNodeTileMetrics>,
@@ -231,7 +245,6 @@ function snapFreeLayoutPosition(
   viewportHeight: number,
   settings: DesktopSettings
 ) {
-  const step = layoutSnapStep(settings);
   const base = desktopTileMetrics(settings);
   const maxAvailableX = Math.max(0, viewportWidth - tile.width);
   const maxAvailableY = Math.max(0, viewportHeight - tile.height);
@@ -241,8 +254,8 @@ function snapFreeLayoutPosition(
   const maxY = Math.max(minY, maxAvailableY - base.paddingY);
 
   return {
-    x: clamp(Math.round(x / step) * step, minX, maxX),
-    y: clamp(Math.round(y / step) * step, minY, maxY)
+    x: clamp(Math.round(x), minX, maxX),
+    y: clamp(Math.round(y), minY, maxY)
   };
 }
 
@@ -325,11 +338,6 @@ function freeGridCandidates(
   }
 
   return candidates;
-}
-
-function layoutSnapStep(settings: DesktopSettings) {
-  const base = desktopTileMetrics(settings);
-  return Math.max(6, Math.round(Math.min(base.width, base.height) / 10));
 }
 
 function uniqueLayoutCandidates(candidates: Array<{ x: number; y: number }>) {

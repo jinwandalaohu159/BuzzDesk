@@ -2916,11 +2916,16 @@ export class DesktopApp {
   }
 
   private switchDesktopLayoutMode(layoutMode: DesktopSettings["layoutMode"]) {
+    const currentLayoutMode = this.store.getSettings().layoutMode;
+    if (layoutMode === currentLayoutMode) {
+      return;
+    }
+
     const previousSuppress = this.suppressStoreRender;
     this.suppressStoreRender = true;
 
     try {
-      if (layoutMode === "free") {
+      if (layoutMode === "free" && currentLayoutMode !== "free") {
         this.seedFreeLayoutPositions();
       }
       this.store.updateSettings({ layoutMode });
@@ -2935,10 +2940,6 @@ export class DesktopApp {
     const viewport = desktopViewport();
     const positions = this.store.getNodes()
       .map((node) => {
-        if (node.position) {
-          return null;
-        }
-
         const slot = this.layout.get(node.id);
         if (!slot) {
           return null;
