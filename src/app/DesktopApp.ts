@@ -3,6 +3,7 @@ import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../an
 import { playFolderClose, playFolderOpen } from "../animation/folderPanel";
 import { playFolderBirth, playMergeGroupIntoTarget, playMergeIntoTarget } from "../animation/merge";
 import {
+  desktopContextMenuPool,
   desktopContextMenuSettingsItems,
   desktopMenuItems,
   itemFallbackMenuItems,
@@ -607,6 +608,7 @@ export class DesktopApp {
     }
 
     const settings = this.store.getSettings();
+    const contextMenuParentLabel = this.contextMenuParentLabel();
     this.settingsLayer.classList.toggle("is-settings-dark", settings.settingsDarkMode);
 
     this.settingsLayer.replaceChildren(
@@ -616,8 +618,8 @@ export class DesktopApp {
         systemIconItems: this.store.getScannedItems().filter((item) => desktopSystemIconIdFromNodeId(item.id)),
         systemIconAddOpen: this.settingsSystemIconAddOpen,
         contextMenuItems: this.contextMenuSettingsItems(this.settingsContextMenuParentKey),
-        contextMenuTitle: this.contextMenuSettingsTitle(),
-        contextMenuParentLabel: this.contextMenuParentLabel(),
+        contextMenuTitle: this.settingsView === "contextMenu" ? contextMenuParentLabel ?? undefined : undefined,
+        contextMenuParentLabel,
         animate: !wasOpen
       })
     );
@@ -679,15 +681,7 @@ export class DesktopApp {
       return null;
     }
 
-    return this.contextMenuSettingsItems(null).find((item) => item.key === parentKey)?.label ?? null;
-  }
-
-  private contextMenuSettingsTitle() {
-    if (this.settingsView !== "contextMenu") {
-      return undefined;
-    }
-
-    return this.contextMenuParentLabel() ?? undefined;
+    return desktopContextMenuPool(this.cachedDesktopNativeMenuItems ?? []).find((item) => item.key === parentKey)?.label ?? null;
   }
 
   private renderContextMenu() {

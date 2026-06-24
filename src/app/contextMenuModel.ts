@@ -344,11 +344,8 @@ function resolveContextMenuLayout(
   pool: DesktopContextMenuPoolItem[],
   settings?: DesktopContextMenuSettings
 ) {
-  if (!settings?.items.length) {
-    return defaultContextMenuLayout(pool);
-  }
-
-  const saved = new Map(settings.items.map((item) => [contextMenuLayoutMapKey(item.parentKey ?? null, item.key), item]));
+  const hasSavedItems = Boolean(settings?.items.length);
+  const saved = new Map((settings?.items ?? []).map((item) => [contextMenuLayoutMapKey(item.parentKey ?? null, item.key), item]));
   const layout = new Map<string, DesktopContextMenuLayoutItem>();
   let visibleNativeCount = 0;
 
@@ -363,30 +360,7 @@ function resolveContextMenuLayout(
       parentKey: item.parentKey,
       source: item.source,
       placement: defaultPlacement,
-      order: nextPlacementOrder(layout, defaultPlacement),
-      group: item.group
-    });
-  });
-
-  return layout;
-}
-
-function defaultContextMenuLayout(pool: DesktopContextMenuPoolItem[]) {
-  const layout = new Map<string, DesktopContextMenuLayoutItem>();
-  let visibleNativeCount = 0;
-
-  pool.forEach((item) => {
-    const placement = defaultContextMenuPlacement(item, visibleNativeCount);
-    if (item.source === "native" && !item.parentKey) {
-      visibleNativeCount += 1;
-    }
-
-    layout.set(item.key, {
-      key: item.key,
-      parentKey: item.parentKey,
-      source: item.source,
-      placement,
-      order: item.order,
+      order: hasSavedItems ? nextPlacementOrder(layout, defaultPlacement) : item.order,
       group: item.group
     });
   });
@@ -456,18 +430,14 @@ function contextMenuItemForPoolItem(
   nativeItems: NativeContextMenuItem[],
   settings?: DesktopContextMenuSettings
 ) {
-  const item = cloneMenuItem(poolItem.item);
+  const { submenu: _unusedSubmenu, ...item } = poolItem.item;
   if (poolItem.source === "native" && poolItem.submenuCount > 0) {
-    item.submenu = menuItemsForParent(nativeItems, settings, poolItem.key);
+    return {
+      ...item,
+      submenu: menuItemsForParent(nativeItems, settings, poolItem.key)
+    };
   }
   return item;
-}
-
-function cloneMenuItem(item: ContextMenuItemModel): ContextMenuItemModel {
-  return {
-    ...item,
-    submenu: item.submenu?.map(cloneMenuItem)
-  };
 }
 
 function nextPlacementOrder(
