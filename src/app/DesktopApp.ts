@@ -667,6 +667,82 @@ export class DesktopApp {
     this.settingsLayer.append(popover);
   }
 
+  private playSettingsDarkModeToggleGhost(button: HTMLButtonElement, nextEnabled: boolean) {
+    const knob = button.querySelector<HTMLElement>("span");
+    if (!knob) {
+      return;
+    }
+
+    document.querySelectorAll(".settings-toggle-ghost").forEach((node) => node.remove());
+
+    const buttonRect = button.getBoundingClientRect();
+    const knobRect = knob.getBoundingClientRect();
+    const buttonStyle = getComputedStyle(button);
+    const knobStyle = getComputedStyle(knob);
+    const layerHadDark = this.settingsLayer.classList.contains("is-settings-dark");
+    this.settingsLayer.classList.toggle("is-settings-dark", nextEnabled);
+    const finalLayerStyle = getComputedStyle(this.settingsLayer);
+    const finalTrackBg = (
+      nextEnabled
+        ? finalLayerStyle.getPropertyValue("--settings-toggle-on")
+        : finalLayerStyle.getPropertyValue("--settings-control-bg")
+    ).trim();
+    const finalKnobBg = finalLayerStyle.getPropertyValue("--settings-toggle-knob").trim();
+    this.settingsLayer.classList.toggle("is-settings-dark", layerHadDark);
+
+    const paddingLeft = Number.parseFloat(buttonStyle.paddingLeft) || 0;
+    const paddingRight = Number.parseFloat(buttonStyle.paddingRight) || 0;
+    const startX = knobRect.left - buttonRect.left;
+    const endX = nextEnabled
+      ? buttonRect.width - knobRect.width - paddingRight
+      : paddingLeft;
+
+    const ghost = document.createElement("div");
+    ghost.className = "settings-toggle-ghost";
+    Object.assign(ghost.style, {
+      position: "fixed",
+      left: `${buttonRect.left}px`,
+      top: `${buttonRect.top}px`,
+      width: `${buttonRect.width}px`,
+      height: `${buttonRect.height}px`,
+      borderRadius: buttonStyle.borderRadius,
+      backgroundColor: buttonStyle.backgroundColor,
+      boxShadow: buttonStyle.boxShadow,
+      pointerEvents: "none",
+      zIndex: "2147483647",
+      overflow: "hidden",
+      transition: "background-color 220ms cubic-bezier(.22, 1, .36, 1), box-shadow 220ms ease"
+    });
+
+    const ghostKnob = document.createElement("span");
+    Object.assign(ghostKnob.style, {
+      position: "absolute",
+      left: "0",
+      top: `${knobRect.top - buttonRect.top}px`,
+      width: `${knobRect.width}px`,
+      height: `${knobRect.height}px`,
+      borderRadius: knobStyle.borderRadius,
+      backgroundColor: knobStyle.backgroundColor,
+      boxShadow: knobStyle.boxShadow,
+      transform: `translate3d(${startX}px, 0, 0)`,
+      transition:
+        "transform 300ms cubic-bezier(.18, 1.05, .22, 1), background-color 220ms ease, box-shadow 220ms ease",
+      willChange: "transform"
+    });
+
+    ghost.append(ghostKnob);
+    document.body.append(ghost);
+
+    requestAnimationFrame(() => {
+      ghost.style.backgroundColor = finalTrackBg;
+      ghostKnob.style.backgroundColor = finalKnobBg;
+      ghostKnob.style.transform = `translate3d(${Math.max(0, endX)}px, 0, 0)`;
+      ghostKnob.style.boxShadow = "0 6px 16px rgba(15, 23, 42, 0.24)";
+    });
+
+    window.setTimeout(() => ghost.remove(), 340);
+  }
+
   private contextMenuSettingsItems(parentKey: string | null = null) {
     return desktopContextMenuSettingsItems(
       this.cachedDesktopNativeMenuItems ?? [],
@@ -2458,7 +2534,9 @@ export class DesktopApp {
     if (darkModeButton) {
       this.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
-      this.store.updateSettings({ settingsDarkMode: this.store.getSettings().settingsDarkMode !== true });
+      const nextEnabled = this.store.getSettings().settingsDarkMode !== true;
+      this.playSettingsDarkModeToggleGhost(darkModeButton, nextEnabled);
+      this.store.updateSettings({ settingsDarkMode: nextEnabled });
       return;
     }
 
