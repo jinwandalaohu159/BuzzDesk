@@ -79,6 +79,7 @@ import type {
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
 const folderPagerHeight = 30;
+const mergeIntentDelayMs = 260;
 
 // Owns desktop interaction orchestration; visual rendering, layout math, state
 // mutation, and platform calls stay in their own modules.
@@ -106,6 +107,9 @@ interface ActiveDrag {
   targetId: string | null;
   targetRect: DOMRect | null;
   targetElement: HTMLElement | null;
+  candidateTargetId: string | null;
+  candidateTargetRect: DOMRect | null;
+  mergeIntentTimer: number | null;
   targetSnapshots: DragTargetSnapshot[];
   groupItems: DragGroupItem[];
   lastTransformStyle: string;
@@ -1482,6 +1486,9 @@ export class DesktopApp {
       targetId: null,
       targetRect: null,
       targetElement: null,
+      candidateTargetId: null,
+      candidateTargetRect: null,
+      mergeIntentTimer: null,
       targetSnapshots: [],
       groupItems,
       lastTransformStyle: "",
@@ -1585,6 +1592,7 @@ export class DesktopApp {
     window.removeEventListener("pointermove", this.onPointerMove);
     window.removeEventListener("pointercancel", this.onPointerCancel);
     window.removeEventListener("blur", this.onWindowBlur);
+    this.clearMergeCandidate(drag);
 
     if (drag.frame !== null) {
       cancelAnimationFrame(drag.frame);
@@ -1715,6 +1723,7 @@ export class DesktopApp {
       if (didAutoScroll) {
         active.targetSnapshots = this.captureMergeTargets(active);
         active.targetRect = null;
+        this.clearMergeCandidate(active);
       }
 
       if (this.isDesktopGroupDrag(active)) {
@@ -2117,11 +2126,63 @@ export class DesktopApp {
     const hit = this.hitTestMergeTarget(x, y, drag.targetSnapshots);
 
     if (!hit) {
+      this.clearMergeCandidate(drag);
       this.setMergeTarget(null);
       return;
     }
 
-    this.setMergeTarget(hit.id, hit.rect);
+    if (drag.targetId === hit.id) {
+      drag.targetRect = hit.rect;
+      return;
+    }
+
+    this.setMergeTarget(null);
+    this.setMergeCandidate(drag, hit);
+  }
+
+  private setMergeCandidate(drag: ActiveDrag, candidate: DragTargetSnapshot) {
+    if (drag.candidateTargetId === candidate.id) {
+      drag.candidateTargetRect = candidate.rect;
+      return;
+    }
+
+    this.clearMergeCandidate(drag);
+    drag.candidateTargetId = candidate.id;
+    drag.candidateTargetRect = candidate.rect;
+    drag.mergeIntentTimer = window.setTimeout(() => {
+      const active = this.drag;
+      if (
+        active !== drag ||
+        active.committing ||
+        active.candidateTargetId !== candidate.id ||
+        !active.candidateTargetRect
+      ) {
+        return;
+      }
+
+      if (!pointInMergeRect(active.currentX, active.currentY, active.candidateTargetRect)) {
+        this.clearMergeCandidate(active);
+        return;
+      }
+
+      const targetRect = active.candidateTargetRect;
+      this.clearMergeCandidate(active);
+      this.setMergeTarget(candidate.id, targetRect);
+      this.scheduleDragFrame();
+    }, mergeIntentDelayMs);
+  }
+
+  private clearMergeCandidate(drag: ActiveDrag | null = this.drag) {
+    if (!drag) {
+      return;
+    }
+
+    if (drag.mergeIntentTimer !== null) {
+      window.clearTimeout(drag.mergeIntentTimer);
+      drag.mergeIntentTimer = null;
+    }
+    drag.candidateTargetId = null;
+    drag.candidateTargetRect = null;
   }
 
   private captureMergeTargets(drag: ActiveDrag): DragTargetSnapshot[] {
@@ -2210,6 +2271,10 @@ export class DesktopApp {
       return;
     }
 
+    if (targetId) {
+      this.clearMergeCandidate(drag);
+    }
+
     if (drag.targetId === targetId) {
       if (targetRect) {
         drag.targetRect = targetRect;
@@ -2281,6 +2346,7 @@ export class DesktopApp {
     let newFolderId: string | null = null;
 
     drag.committing = true;
+    this.clearMergeCandidate(drag);
     if (drag.frame !== null) {
       cancelAnimationFrame(drag.frame);
       drag.frame = null;
@@ -2372,6 +2438,7 @@ export class DesktopApp {
     window.removeEventListener("pointerup", this.onPointerUp);
     window.removeEventListener("pointercancel", this.onPointerCancel);
     window.removeEventListener("blur", this.onWindowBlur);
+    this.clearMergeCandidate(drag);
 
     if (drag.frame !== null) {
       cancelAnimationFrame(drag.frame);
