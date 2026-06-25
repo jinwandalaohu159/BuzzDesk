@@ -8,24 +8,40 @@ import type {
 } from "../types";
 
 const storageKey = "desktop-layer-state-v1";
+const settingsStorageKey = "desktop-layer-settings-v1";
 
 export function loadState(): PersistedDesktopState | null {
+  const savedSettings = loadSettingsState();
+
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) {
-      return null;
+      return savedSettings ? emptyPersistedState(savedSettings) : null;
     }
 
     const parsed = JSON.parse(raw) as unknown;
-    return isPersistedDesktopState(parsed) ? parsed : null;
+    const state = toLoadedDesktopState(parsed);
+    if (!state) {
+      return savedSettings ? emptyPersistedState(savedSettings) : null;
+    }
+
+    return savedSettings ? { ...state, settings: savedSettings } : state;
   } catch {
-    return null;
+    return savedSettings ? emptyPersistedState(savedSettings) : null;
   }
 }
 
 export function saveState(nodes: DesktopNode[], settings: DesktopSettings) {
+  const state = toPersistedState(nodes, settings);
+
   try {
-    localStorage.setItem(storageKey, JSON.stringify(toPersistedState(nodes, settings)));
+    localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
+  } catch (error) {
+    console.warn("Unable to persist desktop settings", error);
+  }
+
+  try {
+    localStorage.setItem(storageKey, JSON.stringify(state));
   } catch (error) {
     console.warn("Unable to persist desktop layout", error);
   }
@@ -77,13 +93,40 @@ function toPersistedItem(node: PersistedItemNode | AppNode): PersistedItemNode {
   };
 }
 
-function isPersistedDesktopState(value: unknown): value is PersistedDesktopState {
-  if (!value || typeof value !== "object") {
-    return false;
+function toLoadedDesktopState(value: unknown): PersistedDesktopState | null {
+  if (!isRecord(value) || value.version !== 1) {
+    return null;
   }
 
-  const state = value as Partial<PersistedDesktopState>;
-  return state.version === 1 && Array.isArray(state.nodes) && state.nodes.every(isPersistedNode);
+  const nodes = Array.isArray(value.nodes) ? value.nodes.filter(isPersistedNode) : [];
+  const settings = isRecord(value.settings) ? (value.settings as Partial<DesktopSettings>) : undefined;
+  if (!settings && nodes.length === 0) {
+    return null;
+  }
+
+  return { version: 1, nodes, settings };
+}
+
+function loadSettingsState(): Partial<DesktopSettings> | null {
+  try {
+    const raw = localStorage.getItem(settingsStorageKey);
+    if (!raw) {
+      return null;
+    }
+
+    const parsed = JSON.parse(raw) as unknown;
+    return isRecord(parsed) ? (parsed as Partial<DesktopSettings>) : null;
+  } catch {
+    return null;
+  }
+}
+
+function emptyPersistedState(settings: Partial<DesktopSettings>): PersistedDesktopState {
+  return { version: 1, nodes: [], settings };
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value && typeof value === "object");
 }
 
 function isPersistedNode(value: unknown): value is PersistedNode {

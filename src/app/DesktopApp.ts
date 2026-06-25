@@ -281,6 +281,7 @@ export class DesktopApp {
 
   async boot() {
     try {
+      const attachLayer = this.attachDesktopLayerWithRetry(12, 180);
       const items = await scanDesktopItems({ includeIcons: false });
       if (items.length === 0) {
         await this.logDesktopDiagnostics("scan returned no desktop items");
@@ -293,8 +294,14 @@ export class DesktopApp {
       void setAppProcessPriority(this.store.getSettings().appPriority);
       void this.syncStartupSetting();
       this.desktopScanSignature = desktopItemsSignature(items);
+      this.render();
+      await waitForPaint();
 
-      const desktopLayerAttached = await attachDesktopLayerWindow();
+      let desktopLayerAttached = await attachLayer;
+      if (!desktopLayerAttached && isDesktopRuntime()) {
+        desktopLayerAttached = await this.attachDesktopLayerWithRetry(10, 250);
+      }
+
       if (!desktopLayerAttached && isDesktopRuntime()) {
         await this.logDesktopDiagnostics("desktop layer window could not attach to shell desktop");
         await restoreNativeDesktopIcons();
@@ -318,8 +325,6 @@ export class DesktopApp {
         return;
       }
 
-      this.render();
-      await waitForPaint();
       await this.logDesktopDiagnostics("desktop layer shown");
       this.startDesktopAutoSync();
       this.scheduleFullDesktopItemLoad();
@@ -339,6 +344,20 @@ export class DesktopApp {
 
     const diagnostics = await getDesktopDiagnostics();
     console.info("BuzzDesk diagnostics", { reason, diagnostics });
+  }
+
+  private async attachDesktopLayerWithRetry(attempts: number, delayMs: number) {
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+      if (await attachDesktopLayerWindow()) {
+        return true;
+      }
+
+      if (attempt < attempts - 1) {
+        await wait(delayMs);
+      }
+    }
+
+    return false;
   }
 
   private async syncStartupSetting() {
@@ -4748,6 +4767,10 @@ function waitForPaint() {
       requestAnimationFrame(() => resolve());
     });
   });
+}
+
+function wait(ms: number) {
+  return new Promise<void>((resolve) => window.setTimeout(resolve, ms));
 }
 
 function scheduleIdleTask(callback: () => void, timeout: number) {
