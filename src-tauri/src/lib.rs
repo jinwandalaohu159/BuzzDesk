@@ -1798,9 +1798,7 @@ mod platform {
         if enabled {
             create_startup_task().or_else(|_| set_startup_run_key())
         } else {
-            delete_startup_task();
-            delete_startup_run_key();
-            Ok(())
+            delete_startup_entries()
         }
     }
 
@@ -1834,8 +1832,33 @@ mod platform {
         }
     }
 
-    fn delete_startup_task() {
-        let _ = schtasks().args(["/Delete", "/TN", STARTUP_TASK_NAME, "/F"]).status();
+    fn delete_startup_entries() -> Result<(), String> {
+        let task_result = delete_startup_task();
+        let run_key_result = delete_startup_run_key();
+
+        match (task_result, run_key_result) {
+            (Ok(()), Ok(())) => Ok(()),
+            (Err(task_error), Ok(())) => Err(task_error),
+            (Ok(()), Err(run_key_error)) => Err(run_key_error),
+            (Err(task_error), Err(run_key_error)) => Err(format!("{task_error}; {run_key_error}")),
+        }
+    }
+
+    fn delete_startup_task() -> Result<(), String> {
+        if !startup_task_exists() {
+            return Ok(());
+        }
+
+        let status = schtasks()
+            .args(["/Delete", "/TN", STARTUP_TASK_NAME, "/F"])
+            .status()
+            .map_err(|error| format!("failed to delete startup task: {error}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("failed to delete startup task".to_string())
+        }
     }
 
     fn startup_task_xml(exe_path: &Path) -> String {
@@ -1910,10 +1933,21 @@ mod platform {
         }
     }
 
-    fn delete_startup_run_key() {
-        let _ = reg()
+    fn delete_startup_run_key() -> Result<(), String> {
+        if !startup_run_key_exists() {
+            return Ok(());
+        }
+
+        let status = reg()
             .args(["DELETE", STARTUP_RUN_KEY, "/V", STARTUP_RUN_VALUE_NAME, "/F"])
-            .status();
+            .status()
+            .map_err(|error| format!("failed to delete startup registry value: {error}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("failed to delete startup registry value".to_string())
+        }
     }
 
     fn schtasks() -> Command {
