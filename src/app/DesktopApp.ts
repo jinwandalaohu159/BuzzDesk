@@ -54,6 +54,8 @@ import {
   renameDesktopItem,
   scanDesktopItems,
   setAppProcessPriority,
+  getStartupEnabled,
+  setStartupEnabled,
   showDesktopItemProperties,
   invokeNativeDesktopContextMenuCommand,
   listNativeDesktopContextMenu,
@@ -289,6 +291,7 @@ export class DesktopApp {
 
       this.store.hydrate(items);
       void setAppProcessPriority(this.store.getSettings().appPriority);
+      void this.syncStartupSetting();
       this.desktopScanSignature = desktopItemsSignature(items);
 
       const desktopLayerAttached = await attachDesktopLayerWindow();
@@ -336,6 +339,13 @@ export class DesktopApp {
 
     const diagnostics = await getDesktopDiagnostics();
     console.info("Desktop Layer diagnostics", { reason, diagnostics });
+  }
+
+  private async syncStartupSetting() {
+    const enabled = await getStartupEnabled();
+    if (enabled !== null && enabled !== this.store.getSettings().startWithWindows) {
+      this.store.updateSettings({ startWithWindows: enabled });
+    }
   }
 
   private installNativeIconSafetyHooks() {
@@ -671,7 +681,11 @@ export class DesktopApp {
     this.settingsLayer.append(popover);
   }
 
-  private playSettingsDarkModeToggleGhost(button: HTMLButtonElement, nextEnabled: boolean) {
+  private playSettingsToggleGhost(
+    button: HTMLButtonElement,
+    nextEnabled: boolean,
+    nextLayerDark = this.settingsLayer.classList.contains("is-settings-dark")
+  ) {
     const knob = button.querySelector<HTMLElement>("span");
     if (!knob) {
       return;
@@ -684,7 +698,7 @@ export class DesktopApp {
     const buttonStyle = getComputedStyle(button);
     const knobStyle = getComputedStyle(knob);
     const layerHadDark = this.settingsLayer.classList.contains("is-settings-dark");
-    this.settingsLayer.classList.toggle("is-settings-dark", nextEnabled);
+    this.settingsLayer.classList.toggle("is-settings-dark", nextLayerDark);
     const finalLayerStyle = getComputedStyle(this.settingsLayer);
     const finalTrackBg = (
       nextEnabled
@@ -2543,6 +2557,7 @@ export class DesktopApp {
     const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
     const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
     const darkModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-dark-mode]");
+    const startupButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-start-with-windows]");
     const systemIconAddTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add-trigger]");
     const systemIconAddButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add]");
     const systemIconRemoveButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-remove]");
@@ -2565,6 +2580,7 @@ export class DesktopApp {
       this.settingsSystemIconAddOpen = false;
       this.store.updateSettings(defaultDesktopSettings);
       void setAppProcessPriority(defaultDesktopSettings.appPriority);
+      void setStartupEnabled(defaultDesktopSettings.startWithWindows);
       return;
     }
 
@@ -2602,8 +2618,21 @@ export class DesktopApp {
       this.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       const nextEnabled = this.store.getSettings().settingsDarkMode !== true;
-      this.playSettingsDarkModeToggleGhost(darkModeButton, nextEnabled);
+      this.playSettingsToggleGhost(darkModeButton, nextEnabled, nextEnabled);
       this.store.updateSettings({ settingsDarkMode: nextEnabled });
+      return;
+    }
+
+    if (startupButton) {
+      this.cancelSettingsPreview();
+      this.settingsPriorityMenuOpen = false;
+      const nextEnabled = this.store.getSettings().startWithWindows !== true;
+      this.playSettingsToggleGhost(startupButton, nextEnabled);
+      this.store.updateSettings({ startWithWindows: nextEnabled });
+      void setStartupEnabled(nextEnabled).catch((error) => {
+        console.warn("Unable to update startup setting", error);
+        this.store.updateSettings({ startWithWindows: !nextEnabled });
+      });
       return;
     }
 
@@ -4751,7 +4780,7 @@ function isNavigationKey(key: string) {
 
 type NumericDesktopSettingKey = Exclude<
   keyof DesktopSettings,
-  "layoutMode" | "appPriority" | "settingsDarkMode" | "systemIcons" | "contextMenu"
+  "layoutMode" | "appPriority" | "settingsDarkMode" | "startWithWindows" | "systemIcons" | "contextMenu"
 >;
 
 function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {

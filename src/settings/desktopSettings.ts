@@ -39,6 +39,7 @@ export const defaultDesktopSettings: DesktopSettings = {
   layoutMode: "auto",
   appPriority: "aboveNormal",
   settingsDarkMode: false,
+  startWithWindows: false,
   systemIcons: { ...defaultDesktopSystemIcons },
   contextMenu: {
     items: []
@@ -89,6 +90,7 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
     layoutMode: normalizeLayoutMode(settings?.layoutMode),
     appPriority: normalizeAppPriority(settings?.appPriority),
     settingsDarkMode: settings?.settingsDarkMode === true,
+    startWithWindows: settings?.startWithWindows === true,
     systemIcons: normalizeSystemIcons(settings?.systemIcons),
     contextMenu: normalizeContextMenuSettings(settings?.contextMenu),
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),

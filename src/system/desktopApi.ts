@@ -272,6 +272,30 @@ export async function setAppProcessPriority(priority: AppProcessPriority) {
   }
 }
 
+export async function getStartupEnabled() {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return null;
+  }
+
+  try {
+    return await invoke<boolean>("get_startup_enabled");
+  } catch (error) {
+    console.warn("Unable to read startup setting", error);
+    return null;
+  }
+}
+
+export async function setStartupEnabled(enabled: boolean) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info("Set startup enabled", enabled);
+    return;
+  }
+
+  await invoke("set_startup_enabled", { enabled });
+}
+
 function toAppNode(item: DesktopSourceItem): AppNode {
   return {
     ...item,

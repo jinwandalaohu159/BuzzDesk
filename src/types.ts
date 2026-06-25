@@ -101,6 +101,7 @@ export interface DesktopSettings {
   layoutMode: DesktopLayoutMode;
   appPriority: AppProcessPriority;
   settingsDarkMode: boolean;
+  startWithWindows: boolean;
   systemIcons: DesktopSystemIconSettings;
   contextMenu: DesktopContextMenuSettings;
   appIconSize: number;

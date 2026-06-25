@@ -436,6 +436,7 @@ function renderSettingsControls(
       "contextMenu"
     ),
     renderSettingsDarkModeControl(settings.settingsDarkMode),
+    renderSettingsStartupControl(settings.startWithWindows),
     renderAppPriorityControl(settings.appPriority)
   ];
 }
@@ -538,6 +539,15 @@ function renderSettingsDarkModeControl(enabled: boolean) {
     output: enabled ? "\u5f00" : "\u5173",
     enabled,
     datasetKey: "settingDarkMode"
+  });
+}
+
+function renderSettingsStartupControl(enabled: boolean) {
+  return renderSettingsToggleRow({
+    label: "\u5f00\u673a\u81ea\u542f\u52a8",
+    output: enabled ? "\u5f00" : "\u5173",
+    enabled,
+    datasetKey: "settingStartWithWindows"
   });
 }
 

@@ -133,6 +133,16 @@ fn set_app_process_priority(priority: String) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn get_startup_enabled() -> bool {
+    platform::get_startup_enabled()
+}
+
+#[tauri::command]
+fn set_startup_enabled(enabled: bool) -> Result<(), String> {
+    platform::set_startup_enabled(enabled)
+}
+
+#[tauri::command]
 fn show_native_item_context_menu(
     app: AppHandle,
     launch_id: String,
@@ -377,6 +387,8 @@ pub fn run() {
             delete_desktop_item,
             show_desktop_item_properties,
             set_app_process_priority,
+            get_startup_enabled,
+            set_startup_enabled,
             show_native_item_context_menu,
             list_native_desktop_context_menu,
             invoke_native_desktop_context_menu_command,
@@ -556,6 +568,14 @@ mod platform {
         Ok(())
     }
 
+    pub fn get_startup_enabled() -> bool {
+        false
+    }
+
+    pub fn set_startup_enabled(_enabled: bool) -> Result<(), String> {
+        Ok(())
+    }
+
     pub fn set_native_desktop_icons_visible(_visible: bool) -> Result<(), String> {
         Ok(())
     }
@@ -572,7 +592,9 @@ mod platform {
     use std::fs;
     use std::os::windows::ffi::OsStrExt;
     use std::os::windows::fs::MetadataExt;
+    use std::os::windows::process::CommandExt;
     use std::path::{Path, PathBuf};
+    use std::process::Command;
     use std::sync::{Mutex, OnceLock};
     use windows::core::{w, Interface, BOOL, PCSTR, PCWSTR, PSTR, PWSTR};
     use windows::Win32::Foundation::{
@@ -585,6 +607,10 @@ mod platform {
 
     const MAX_ICON_DATA_URL_CACHE_ENTRIES: usize = 256;
     const DESKTOP_LAYER_EDGE_BLEED_PX: i32 = 20;
+    const STARTUP_TASK_NAME: &str = "\\Desktop Layer";
+    const STARTUP_RUN_VALUE_NAME: &str = "Desktop Layer";
+    const STARTUP_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
+    const CREATE_NO_WINDOW: u32 = 0x08000000;
 
     static COPIED_DESKTOP_ITEM: Mutex<Option<PathBuf>> = Mutex::new(None);
     static ICON_DATA_URL_CACHE: OnceLock<Mutex<HashMap<i32, String>>> = OnceLock::new();
@@ -1762,6 +1788,153 @@ mod platform {
             SetPriorityClass(GetCurrentProcess(), priority_class)
                 .map_err(|error| format!("failed to set process priority: {error}"))
         }
+    }
+
+    pub fn get_startup_enabled() -> bool {
+        startup_task_exists() || startup_run_key_exists()
+    }
+
+    pub fn set_startup_enabled(enabled: bool) -> Result<(), String> {
+        if enabled {
+            create_startup_task().or_else(|_| set_startup_run_key())
+        } else {
+            delete_startup_task();
+            delete_startup_run_key();
+            Ok(())
+        }
+    }
+
+    fn startup_task_exists() -> bool {
+        schtasks()
+            .args(["/Query", "/TN", STARTUP_TASK_NAME])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    fn create_startup_task() -> Result<(), String> {
+        let exe_path = env::current_exe()
+            .map_err(|error| format!("failed to resolve current executable: {error}"))?;
+        let xml_path = env::temp_dir().join("desktop-layer-startup.xml");
+        write_utf16_xml(&xml_path, &startup_task_xml(&exe_path))
+            .map_err(|error| format!("failed to write startup task XML: {error}"))?;
+
+        let status = schtasks()
+            .args(["/Create", "/TN", STARTUP_TASK_NAME, "/XML"])
+            .arg(&xml_path)
+            .arg("/F")
+            .status()
+            .map_err(|error| format!("failed to create startup task: {error}"))?;
+
+        let _ = fs::remove_file(xml_path);
+        if status.success() {
+            Ok(())
+        } else {
+            Err("failed to create startup task".to_string())
+        }
+    }
+
+    fn delete_startup_task() {
+        let _ = schtasks().args(["/Delete", "/TN", STARTUP_TASK_NAME, "/F"]).status();
+    }
+
+    fn startup_task_xml(exe_path: &Path) -> String {
+        let command = xml_escape(exe_path.to_string_lossy().as_ref());
+        format!(
+            r#"<?xml version="1.0" encoding="UTF-16"?>
+<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+  <Triggers>
+    <LogonTrigger>
+      <Enabled>true</Enabled>
+    </LogonTrigger>
+  </Triggers>
+  <Settings>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <StartWhenAvailable>true</StartWhenAvailable>
+    <Enabled>true</Enabled>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+  </Settings>
+  <Actions>
+    <Exec>
+      <Command>{command}</Command>
+    </Exec>
+  </Actions>
+</Task>
+"#
+        )
+    }
+
+    fn write_utf16_xml(path: &Path, xml: &str) -> std::io::Result<()> {
+        let mut bytes = Vec::with_capacity(xml.len() * 2 + 2);
+        bytes.extend_from_slice(&[0xff, 0xfe]);
+        for code in xml.encode_utf16() {
+            bytes.extend_from_slice(&code.to_le_bytes());
+        }
+
+        fs::write(path, bytes)
+    }
+
+    fn startup_run_key_exists() -> bool {
+        reg()
+            .args(["QUERY", STARTUP_RUN_KEY, "/V", STARTUP_RUN_VALUE_NAME])
+            .status()
+            .map(|status| status.success())
+            .unwrap_or(false)
+    }
+
+    fn set_startup_run_key() -> Result<(), String> {
+        let exe_path = env::current_exe()
+            .map_err(|error| format!("failed to resolve current executable: {error}"))?;
+        let value = format!("\"{}\"", exe_path.to_string_lossy());
+        let status = reg()
+            .args([
+                "ADD",
+                STARTUP_RUN_KEY,
+                "/V",
+                STARTUP_RUN_VALUE_NAME,
+                "/T",
+                "REG_SZ",
+                "/D",
+            ])
+            .arg(value)
+            .arg("/F")
+            .status()
+            .map_err(|error| format!("failed to set startup registry value: {error}"))?;
+
+        if status.success() {
+            Ok(())
+        } else {
+            Err("failed to set startup registry value".to_string())
+        }
+    }
+
+    fn delete_startup_run_key() {
+        let _ = reg()
+            .args(["DELETE", STARTUP_RUN_KEY, "/V", STARTUP_RUN_VALUE_NAME, "/F"])
+            .status();
+    }
+
+    fn schtasks() -> Command {
+        let mut command = Command::new("schtasks.exe");
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+
+    fn reg() -> Command {
+        let mut command = Command::new("reg.exe");
+        command.creation_flags(CREATE_NO_WINDOW);
+        command
+    }
+
+    fn xml_escape(value: &str) -> String {
+        value
+            .replace('&', "&amp;")
+            .replace('<', "&lt;")
+            .replace('>', "&gt;")
+            .replace('"', "&quot;")
+            .replace('\'', "&apos;")
     }
 
     pub fn attach_window_to_desktop(hwnd: HWND, show: bool) -> Result<(), String> {
