@@ -1796,7 +1796,7 @@ mod platform {
 
     pub fn set_startup_enabled(enabled: bool) -> Result<(), String> {
         if enabled {
-            create_startup_task().or_else(|_| set_startup_run_key())
+            set_startup_run_key().or_else(|_| create_startup_task())
         } else {
             delete_startup_entries()
         }

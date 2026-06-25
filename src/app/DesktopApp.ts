@@ -761,6 +761,26 @@ export class DesktopApp {
     window.setTimeout(() => ghost.remove(), 340);
   }
 
+  private updateSettingsToggleRow(button: HTMLButtonElement, enabled: boolean) {
+    button.setAttribute("aria-pressed", String(enabled));
+    const row = button.closest(".settings-toggle-row");
+    const output = row?.querySelector("output");
+    if (output) {
+      output.textContent = enabled ? "\u5f00" : "\u5173";
+    }
+  }
+
+  private updateStartupSettingState(enabled: boolean) {
+    const previousSuppress = this.suppressStoreRender;
+    this.suppressStoreRender = true;
+
+    try {
+      this.store.updateSettings({ startWithWindows: enabled });
+    } finally {
+      this.suppressStoreRender = previousSuppress;
+    }
+  }
+
   private contextMenuSettingsItems(parentKey: string | null = null) {
     return desktopContextMenuSettingsItems(
       this.cachedDesktopNativeMenuItems ?? [],
@@ -2628,10 +2648,12 @@ export class DesktopApp {
       this.settingsPriorityMenuOpen = false;
       const nextEnabled = this.store.getSettings().startWithWindows !== true;
       this.playSettingsToggleGhost(startupButton, nextEnabled);
-      this.store.updateSettings({ startWithWindows: nextEnabled });
+      this.updateSettingsToggleRow(startupButton, nextEnabled);
+      this.updateStartupSettingState(nextEnabled);
       void setStartupEnabled(nextEnabled).catch((error) => {
         console.warn("Unable to update startup setting", error);
-        this.store.updateSettings({ startWithWindows: !nextEnabled });
+        this.updateSettingsToggleRow(startupButton, !nextEnabled);
+        this.updateStartupSettingState(!nextEnabled);
       });
       return;
     }
