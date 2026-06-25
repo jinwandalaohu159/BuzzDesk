@@ -3049,6 +3049,7 @@ export class DesktopApp {
     const next = Math.min(max, Math.max(min, Math.round(value)));
 
     if (isDesktopSettingKey(key)) {
+      this.commitSettingValue(key, next, false);
       const settings = { ...this.store.getSettings(), [key]: next };
       this.scheduleSettingsPreview(() => this.previewDesktopSettings(settings));
     }
