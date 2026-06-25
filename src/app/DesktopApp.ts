@@ -325,7 +325,7 @@ export class DesktopApp {
       this.scheduleFullDesktopItemLoad();
       window.setTimeout(() => void this.loadNativeDesktopMenuItems(), 300);
     } catch (error) {
-      console.error("Desktop layer failed to boot", error);
+      console.error("BuzzDesk failed to boot", error);
       await this.logDesktopDiagnostics("boot failed");
       await restoreNativeDesktopIcons();
       this.renderStartupError("\u542f\u52a8\u5931\u8d25\uff0c\u5df2\u5c1d\u8bd5\u6062\u590d Windows \u539f\u751f\u684c\u9762\u56fe\u6807\u3002");
@@ -338,7 +338,7 @@ export class DesktopApp {
     }
 
     const diagnostics = await getDesktopDiagnostics();
-    console.info("Desktop Layer diagnostics", { reason, diagnostics });
+    console.info("BuzzDesk diagnostics", { reason, diagnostics });
   }
 
   private async syncStartupSetting() {

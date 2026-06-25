@@ -406,7 +406,7 @@ pub fn run() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("failed to build desktop layer");
+        .expect("failed to build BuzzDesk");
 
     app.run(|_, event| {
         if matches!(
@@ -429,7 +429,7 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
     let show_layer_item = MenuItem::with_id(
         app,
         TRAY_SHOW_LAYER_ID,
-        "\u{663e}\u{793a} Desktop Layer",
+        "\u{663e}\u{793a} BuzzDesk",
         true,
         None::<&str>,
     )?;
@@ -452,8 +452,8 @@ fn setup_tray(app: &tauri::App) -> tauri::Result<()> {
         .map(Image::to_owned)
         .unwrap_or_else(make_tray_icon);
 
-    TrayIconBuilder::with_id("desktop-layer")
-        .tooltip("Desktop Layer")
+    TrayIconBuilder::with_id("buzzdesk")
+        .tooltip("BuzzDesk")
         .icon(tray_icon)
         .menu(&menu)
         .show_menu_on_left_click(false)
@@ -607,8 +607,8 @@ mod platform {
 
     const MAX_ICON_DATA_URL_CACHE_ENTRIES: usize = 256;
     const DESKTOP_LAYER_EDGE_BLEED_PX: i32 = 20;
-    const STARTUP_TASK_NAME: &str = "\\Desktop Layer";
-    const STARTUP_RUN_VALUE_NAME: &str = "Desktop Layer";
+    const STARTUP_TASK_NAME: &str = "\\BuzzDesk";
+    const STARTUP_RUN_VALUE_NAME: &str = "BuzzDesk";
     const STARTUP_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
     const CREATE_NO_WINDOW: u32 = 0x08000000;
 
@@ -1046,7 +1046,7 @@ mod platform {
                 .lock()
                 .map_err(|_| "copy buffer is unavailable".to_string())?
                 .clone()
-                .ok_or("nothing has been copied in Desktop Layer".to_string())?;
+                .ok_or("nothing has been copied in BuzzDesk".to_string())?;
 
             if !source.exists() {
                 return Err("copied item no longer exists".to_string());
@@ -1813,7 +1813,7 @@ mod platform {
     fn create_startup_task() -> Result<(), String> {
         let exe_path = env::current_exe()
             .map_err(|error| format!("failed to resolve current executable: {error}"))?;
-        let xml_path = env::temp_dir().join("desktop-layer-startup.xml");
+        let xml_path = env::temp_dir().join("buzzdesk-startup.xml");
         write_utf16_xml(&xml_path, &startup_task_xml(&exe_path))
             .map_err(|error| format!("failed to write startup task XML: {error}"))?;
 

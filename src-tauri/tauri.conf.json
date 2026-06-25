@@ -1,8 +1,8 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "Desktop Layer",
+  "productName": "BuzzDesk",
   "version": "0.1.0",
-  "identifier": "local.desktop.layer",
+  "identifier": "local.buzzdesk",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://127.0.0.1:1420",
@@ -13,7 +13,7 @@
     "windows": [
       {
         "label": "main",
-        "title": "Desktop Layer",
+        "title": "BuzzDesk",
         "width": 1280,
         "height": 720,
         "decorations": false,
@@ -30,7 +30,11 @@
     }
   },
   "bundle": {
-    "active": false,
-    "targets": "all"
+    "active": true,
+    "targets": "nsis",
+    "icon": [
+      "icons/icon.ico",
+      "icons/icon.png"
+    ]
   }
 }
