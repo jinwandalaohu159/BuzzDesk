@@ -139,6 +139,7 @@ interface ActiveDrag {
   lastTransformStyle: string;
   lastPullX: number;
   lastPullY: number;
+  toggleSelection: boolean;
   committing: boolean;
 }
 
@@ -1083,6 +1084,17 @@ export class DesktopApp {
     this.setDesktopSelection([id], id);
   }
 
+  private toggleDesktopNodeSelection(id: string) {
+    const selected = this.desktopSelectionForRender();
+    if (selected.has(id)) {
+      selected.delete(id);
+    } else {
+      selected.add(id);
+    }
+
+    this.setDesktopSelection(selected, selected.has(id) ? id : null);
+  }
+
   private clearDesktopSelection() {
     this.selectedId = null;
     this.selectedIds.clear();
@@ -1169,7 +1181,7 @@ export class DesktopApp {
 
     const groupNodeIds = this.desktopDragGroupForNode(id);
     if (groupNodeIds.length <= 1) {
-      this.previewDesktopPress(node, tile);
+      this.previewDesktopPress(node, tile, event.ctrlKey);
     }
     this.beginDrag({
       source: { type: "desktop", nodeId: id },
@@ -1193,10 +1205,14 @@ export class DesktopApp {
       .filter((id) => this.selectedIds.has(id));
   }
 
-  private previewDesktopPress(node: DesktopNode, tile: HTMLElement) {
+  private previewDesktopPress(node: DesktopNode, tile: HTMLElement, toggleSelection = false) {
     this.closeContextMenu();
     this.selectedFolderChild = null;
     this.renamingId = null;
+    if (toggleSelection) {
+      return;
+    }
+
     this.selectSingleDesktopNode(node.id);
     this.grid.querySelectorAll(".desktop-tile.is-selected").forEach((element) => {
       if (element !== tile) {
@@ -1658,6 +1674,7 @@ export class DesktopApp {
       lastTransformStyle: "",
       lastPullX: 0,
       lastPullY: 0,
+      toggleSelection: options.source.type === "desktop" && options.event.ctrlKey,
       committing: false
     };
 
@@ -1786,7 +1803,7 @@ export class DesktopApp {
       this.clearTargetStyles();
 
       if (source.type === "desktop") {
-        this.activateDesktopNode(source.nodeId, element);
+        this.activateDesktopNode(source.nodeId, element, drag.toggleSelection);
       } else {
         void this.activateFolderChild(source.folderId, source.childId);
       }
@@ -4644,13 +4661,21 @@ export class DesktopApp {
     }
   }
 
-  private activateDesktopNode(nodeId: string, element: HTMLElement) {
+  private activateDesktopNode(nodeId: string, element: HTMLElement, toggleSelection = false) {
     const node = this.findNode(nodeId);
     if (!node) {
       return;
     }
 
     this.closeContextMenu();
+    if (toggleSelection) {
+      this.lastActivation = null;
+      this.renamingId = null;
+      this.toggleDesktopNodeSelection(node.id);
+      this.applyDesktopSelectionToDom();
+      return;
+    }
+
     if (node.type === "folder") {
       this.lastActivation = null;
       this.openFolderFromElement(node, element);
