@@ -1462,64 +1462,42 @@ mod platform {
         }
     }
 
-    unsafe fn native_menu_item_label(menu: HMENU, index: u32) -> String {
+    unsafe fn native_menu_label(menu: HMENU, item: u32, by_position: bool) -> Option<String> {
         let mut info = MENUITEMINFOW {
             cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
             fMask: MIIM_STRING,
             ..Default::default()
         };
 
-        if GetMenuItemInfoW(menu, index, true, &mut info).is_err() || info.cch == 0 {
-            return String::new();
+        if GetMenuItemInfoW(menu, item, by_position, &mut info).is_err() || info.cch == 0 {
+            return None;
         }
 
         let mut buffer = vec![0u16; info.cch as usize + 1];
         info.dwTypeData = PWSTR(buffer.as_mut_ptr());
         info.cch = buffer.len() as u32;
-        if GetMenuItemInfoW(menu, index, true, &mut info).is_err() {
-            return String::new();
+        if GetMenuItemInfoW(menu, item, by_position, &mut info).is_err() {
+            return None;
         }
 
         let len = buffer
             .iter()
             .position(|value| *value == 0)
             .unwrap_or(buffer.len());
-        clean_native_menu_label(&String::from_utf16_lossy(&buffer[..len]))
+        let label = clean_native_menu_label(&String::from_utf16_lossy(&buffer[..len]));
+        if label.is_empty() {
+            None
+        } else {
+            Some(label)
+        }
+    }
+
+    unsafe fn native_menu_item_label(menu: HMENU, index: u32) -> String {
+        native_menu_label(menu, index, true).unwrap_or_default()
     }
 
     unsafe fn native_menu_command_label(menu: HMENU, command: u32) -> Option<String> {
-        let count = GetMenuItemCount(Some(menu));
-        if count <= 0 {
-            return None;
-        }
-
-        for index in 0..count {
-            let mut info = MENUITEMINFOW {
-                cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-                fMask: MIIM_FTYPE | MIIM_ID | MIIM_SUBMENU,
-                ..Default::default()
-            };
-
-            if GetMenuItemInfoW(menu, index as u32, true, &mut info).is_err() {
-                continue;
-            }
-
-            if (info.fType & MFT_SEPARATOR) == MFT_SEPARATOR {
-                continue;
-            }
-
-            if info.wID == command {
-                return Some(native_menu_item_label(menu, index as u32));
-            }
-
-            if !info.hSubMenu.is_invalid() {
-                if let Some(label) = native_menu_command_label(info.hSubMenu, command) {
-                    return Some(label);
-                }
-            }
-        }
-
-        None
+        native_menu_label(menu, command, false)
     }
 
     fn clean_native_menu_label(label: &str) -> String {
@@ -1700,9 +1678,6 @@ mod platform {
         };
 
         let normalized = label
-            .replace("&&", "\u{0}")
-            .replace('&', "")
-            .replace('\u{0}', "&")
             .replace('\u{2026}', "")
             .replace("...", "")
             .trim()
@@ -1715,10 +1690,8 @@ mod platform {
     }
 
     fn is_recycle_bin_launch_id(launch_id: &str) -> bool {
-        let normalized = launch_id.trim().to_ascii_lowercase();
-        normalized == "shell:recyclebinfolder"
-            || normalized == "shell:recycle-bin"
-            || normalized.contains("645ff040-5081-101b-9f08-00aa002f954e")
+        shell_virtual_id(launch_id).as_deref() == Some("shell:recycle-bin")
+            || launch_id.trim().eq_ignore_ascii_case("shell:recycle-bin")
     }
 
     unsafe fn show_context_menu(
