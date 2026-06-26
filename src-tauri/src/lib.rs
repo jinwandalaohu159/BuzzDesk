@@ -733,6 +733,7 @@ mod platform {
     use windows::Win32::System::Threading::{
         GetCurrentProcess, GetExitCodeProcess, SetPriorityClass, WaitForSingleObject,
         ABOVE_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS,
+        REALTIME_PRIORITY_CLASS,
     };
     use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::{
@@ -1949,6 +1950,7 @@ mod platform {
             "normal" => NORMAL_PRIORITY_CLASS,
             "aboveNormal" => ABOVE_NORMAL_PRIORITY_CLASS,
             "high" => HIGH_PRIORITY_CLASS,
+            "realtime" => REALTIME_PRIORITY_CLASS,
             _ => return Err(format!("unsupported process priority: {priority}")),
         };
 

@@ -5440,7 +5440,7 @@ function isDesktopSettingKey(key: string): key is NumericDesktopSettingKey {
 }
 
 function isAppProcessPriority(value: unknown): value is AppProcessPriority {
-  return value === "normal" || value === "aboveNormal" || value === "high";
+  return value === "normal" || value === "aboveNormal" || value === "high" || value === "realtime";
 }
 
 function isContextMenuPlacement(value: unknown): value is DesktopContextMenuPlacement {

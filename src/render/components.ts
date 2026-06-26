@@ -944,12 +944,11 @@ function renderAppPriorityControl(priority: DesktopSettings["appPriority"]) {
   const help = document.createElement("span");
   help.className = "settings-help";
   help.textContent = "?";
-  help.title = "\u8c03\u6574\u672c\u5e94\u7528\u5728 Windows \u4e2d\u83b7\u5f97 CPU \u8c03\u5ea6\u7684\u4f18\u5148\u7a0b\u5ea6\u3002\u8f83\u9ad8\u662f\u63a8\u8350\u503c\uff0c\u9ad8\u53ef\u80fd\u5f71\u54cd\u5176\u4ed6\u7a0b\u5e8f\u3002";
+  help.title = "\u8c03\u6574\u672c\u5e94\u7528\u5728 Windows \u4e2d\u83b7\u5f97 CPU \u8c03\u5ea6\u7684\u4f18\u5148\u7a0b\u5ea6\u3002\u8f83\u9ad8\u662f\u63a8\u8350\u503c\uff0c\u5b9e\u65f6\u662f\u6700\u9ad8\u6863\u3002";
   name.append(help);
 
   const output = document.createElement("output");
-  output.textContent =
-    priority === "high" ? "\u9ad8" : priority === "normal" ? "\u6b63\u5e38" : "\u8f83\u9ad8";
+  output.textContent = appPriorityLabel(priority);
 
   meta.append(name, output);
 
@@ -993,8 +992,13 @@ function appPriorityOptions() {
   return [
     { value: "normal", label: "\u6b63\u5e38" },
     { value: "aboveNormal", label: "\u8f83\u9ad8" },
-    { value: "high", label: "\u9ad8" }
+    { value: "high", label: "\u9ad8" },
+    { value: "realtime", label: "\u5b9e\u65f6" }
   ] as const;
+}
+
+function appPriorityLabel(priority: DesktopSettings["appPriority"]) {
+  return appPriorityOptions().find((option) => option.value === priority)?.label ?? "\u8f83\u9ad8";
 }
 
 function renderSettingControl(

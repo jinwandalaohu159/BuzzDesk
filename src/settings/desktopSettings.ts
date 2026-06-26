@@ -124,7 +124,7 @@ function normalizeLayoutMode(value: unknown): DesktopLayoutMode {
 }
 
 function normalizeAppPriority(value: unknown): AppProcessPriority {
-  return value === "high" || value === "normal" ? value : "aboveNormal";
+  return value === "high" || value === "normal" || value === "realtime" ? value : "aboveNormal";
 }
 
 function normalizeSystemIcons(value: unknown): DesktopSystemIconSettings {

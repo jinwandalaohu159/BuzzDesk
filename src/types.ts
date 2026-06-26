@@ -2,7 +2,7 @@ export type DesktopItemKind = "app" | "file" | "directory" | "system";
 
 export type FolderCoverSize = "small" | "medium" | "large";
 export type DesktopLayoutMode = "auto" | "free";
-export type AppProcessPriority = "normal" | "aboveNormal" | "high";
+export type AppProcessPriority = "normal" | "aboveNormal" | "high" | "realtime";
 export type SettingsView = "main" | "layout" | "system" | "contextMenu";
 export type DesktopContextMenuPlacement = "main" | "more" | "hidden";
 export type DesktopContextMenuSource = "native" | "action";
