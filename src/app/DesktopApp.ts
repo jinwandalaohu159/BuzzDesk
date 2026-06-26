@@ -3089,7 +3089,7 @@ export class DesktopApp {
       if (isAppProcessPriority(appPriority)) {
         this.cancelSettingsPreview();
         this.settingsPriorityMenuOpen = false;
-        this.store.updateSettings({ appPriority });
+        this.commitAppPriority(appPriority, priorityButton.textContent?.trim() ?? "");
         void setAppProcessPriority(appPriority);
       }
       return;
@@ -3173,6 +3173,36 @@ export class DesktopApp {
   private resetContextMenuCustomization() {
     this.store.updateSettings({ contextMenu: resetContextMenuSettings() });
     void this.refreshContextMenuSettingsPool();
+  }
+
+  private commitAppPriority(appPriority: AppProcessPriority, label: string) {
+    const previousSuppress = this.suppressStoreRender;
+    this.suppressStoreRender = true;
+
+    try {
+      this.store.updateSettings({ appPriority });
+    } finally {
+      this.suppressStoreRender = previousSuppress;
+    }
+
+    this.updateSettingsPriorityControl(label);
+  }
+
+  private updateSettingsPriorityControl(label: string) {
+    const trigger = this.settingsLayer.querySelector<HTMLElement>("[data-setting-priority-trigger]");
+    const row = trigger?.closest<HTMLElement>(".settings-row");
+    const output = row?.querySelector<HTMLOutputElement>("output");
+
+    if (label) {
+      if (trigger) {
+        trigger.textContent = label;
+      }
+      if (output) {
+        output.textContent = label;
+      }
+    }
+
+    this.renderSettingsPriorityMenu();
   }
 
   private onSettingsInput(event: Event) {
