@@ -220,10 +220,6 @@ interface SettingsContextMenuDragState {
   lastTarget: SettingsContextMenuDropTarget | null;
 }
 
-interface DeleteConfirmState {
-  resolve: (confirmed: boolean) => void;
-}
-
 export class DesktopApp {
   private readonly store = new DesktopStore();
   private readonly root: HTMLElement;
@@ -277,7 +273,7 @@ export class DesktopApp {
   private contextOverlayVersion = 0;
   private cachedDesktopNativeMenuItems: NativeContextMenuItem[] | null = null;
   private desktopNativeMenuLoad: Promise<NativeContextMenuItem[]> | null = null;
-  private deleteConfirm: DeleteConfirmState | null = null;
+  private deleteConfirmResolve: ((confirmed: boolean) => void) | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -438,7 +434,7 @@ export class DesktopApp {
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
     this.settingsLayer.addEventListener("scroll", () => this.renderSettingsPriorityMenu(), true);
     this.contextMenuLayer.addEventListener("click", (event) => {
-      if (this.deleteConfirm) {
+      if (this.deleteConfirmResolve) {
         this.onDeleteConfirmClick(event);
       } else if (this.ratioDialogTargetId) {
         this.onRatioDialogClick(event);
@@ -853,7 +849,7 @@ export class DesktopApp {
   }
 
   private renderContextMenu() {
-    if (this.deleteConfirm) {
+    if (this.deleteConfirmResolve) {
       this.contextMenuLayer.classList.add("is-open");
       return;
     }
@@ -3828,9 +3824,9 @@ export class DesktopApp {
   private confirmDeleteItem(node: AppNode) {
     this.beginContextOverlayRequest();
     return new Promise<boolean>((resolve) => {
-      this.deleteConfirm = { resolve };
+      this.deleteConfirmResolve = resolve;
       this.contextMenuLayer.classList.add("is-open");
-      this.contextMenuLayer.replaceChildren(renderDeleteConfirmDialog({ name: node.name }));
+      this.contextMenuLayer.replaceChildren(renderDeleteConfirmDialog(node.name));
       requestAnimationFrame(() => {
         this.contextMenuLayer.querySelector<HTMLButtonElement>("[data-delete-confirm]")?.focus();
       });
@@ -3838,16 +3834,14 @@ export class DesktopApp {
   }
 
   private closeDeleteConfirm(confirmed: boolean) {
-    const pending = this.deleteConfirm;
-    if (!pending) {
+    if (!this.deleteConfirmResolve) {
       return;
     }
 
     this.invalidateContextOverlay();
-    this.deleteConfirm = null;
     this.contextMenuLayer.classList.remove("is-open");
     this.contextMenuLayer.replaceChildren();
-    pending.resolve(confirmed);
+    this.resolveDeleteConfirm(confirmed);
   }
 
   private onDeleteConfirmClick(event: MouseEvent) {
@@ -3857,7 +3851,7 @@ export class DesktopApp {
       return;
     }
 
-    if (target.closest("[data-delete-cancel]") || (target.dataset.deleteBackdrop && !target.closest("[data-delete-dialog]"))) {
+    if (target.closest("[data-delete-cancel]")) {
       this.closeDeleteConfirm(false);
     }
   }
@@ -3921,7 +3915,7 @@ export class DesktopApp {
   }
 
   private handleDeleteConfirmKeyDown(event: KeyboardEvent) {
-    if (!this.deleteConfirm) {
+    if (!this.deleteConfirmResolve) {
       return false;
     }
 
@@ -3964,7 +3958,7 @@ export class DesktopApp {
     if (
       !this.contextMenu ||
       this.ratioDialogTargetId ||
-      this.deleteConfirm ||
+      this.deleteConfirmResolve ||
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
@@ -4240,13 +4234,13 @@ export class DesktopApp {
   }
 
   private resolveDeleteConfirm(confirmed: boolean) {
-    const pending = this.deleteConfirm;
-    if (!pending) {
+    const resolve = this.deleteConfirmResolve;
+    if (!resolve) {
       return;
     }
 
-    this.deleteConfirm = null;
-    pending.resolve(confirmed);
+    this.deleteConfirmResolve = null;
+    resolve(confirmed);
   }
 
   private pruneDetachedUiState() {
@@ -4300,7 +4294,7 @@ export class DesktopApp {
   private onGlobalPointerDown(event: PointerEvent) {
     const target = event.target as HTMLElement;
 
-    if (this.deleteConfirm) {
+    if (this.deleteConfirmResolve) {
       if (!target.closest(".delete-confirm-dialog")) {
         this.closeDeleteConfirm(false);
       }
@@ -4498,7 +4492,7 @@ export class DesktopApp {
         this.renamingId ||
         this.renamingFolderChild ||
         this.editingFolder ||
-        this.deleteConfirm ||
+        this.deleteConfirmResolve ||
         this.ratioDialogTargetId ||
         this.contextMenu ||
         this.settingsOpen

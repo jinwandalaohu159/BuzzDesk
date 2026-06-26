@@ -1315,17 +1315,15 @@ export function renderRatioDialog(options: {
   return dialog;
 }
 
-export function renderDeleteConfirmDialog(options: { name: string }) {
+export function renderDeleteConfirmDialog(itemName: string) {
   const backdrop = document.createElement("div");
   backdrop.className = "delete-confirm-backdrop";
-  backdrop.dataset.deleteBackdrop = "true";
 
   const dialog = document.createElement("section");
   dialog.className = "delete-confirm-dialog";
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
   dialog.setAttribute("aria-labelledby", "delete-confirm-title");
-  dialog.dataset.deleteDialog = "true";
 
   const icon = document.createElement("div");
   icon.className = "delete-confirm-icon";
@@ -1340,7 +1338,7 @@ export function renderDeleteConfirmDialog(options: { name: string }) {
 
   const name = document.createElement("div");
   name.className = "delete-confirm-name";
-  name.textContent = `\u201c${options.name}\u201d`;
+  name.textContent = `\u201c${itemName}\u201d`;
 
   const message = document.createElement("p");
   message.textContent = "\u5c06\u79fb\u5230\u56de\u6536\u7ad9\uff0c\u53ef\u4ee5\u5728\u56de\u6536\u7ad9\u4e2d\u8fd8\u539f\u3002";
