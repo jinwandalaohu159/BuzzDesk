@@ -294,6 +294,59 @@ export class DesktopStore {
     return true;
   }
 
+  updateNodeOrderAndPositions(orderedIds: string[], positions: MovePosition[]) {
+    const order = new Map(orderedIds.map((id, index) => [id, index]));
+    const updates = new Map(
+      positions.map((entry) => [entry.id, normalizePosition(entry.position)])
+    );
+    if (order.size === 0 && updates.size === 0) {
+      return false;
+    }
+
+    let changed = false;
+    const next = this.nodes
+      .map((node, index) => {
+        const position = updates.get(node.id);
+        if (!position) {
+          return { node, index };
+        }
+
+        if (node.position?.x !== position.x || node.position?.y !== position.y) {
+          changed = true;
+          return { node: { ...node, position }, index };
+        }
+
+        return { node, index };
+      })
+      .sort((a, b) => {
+        const aOrder = order.get(a.node.id);
+        const bOrder = order.get(b.node.id);
+        if (aOrder === undefined && bOrder === undefined) {
+          return a.index - b.index;
+        }
+        if (aOrder === undefined) {
+          return 1;
+        }
+        if (bOrder === undefined) {
+          return -1;
+        }
+        return aOrder - bOrder || a.index - b.index;
+      })
+      .map((entry) => entry.node);
+
+    if (next.map((node) => node.id).join("\n") !== this.nodes.map((node) => node.id).join("\n")) {
+      changed = true;
+    }
+
+    if (!changed) {
+      return false;
+    }
+
+    this.nodes = next;
+    this.persistAndEmit();
+    return true;
+  }
+
   createFolder(sourceId: string, targetId: string): FolderCreationResult {
     const sourceIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === sourceId);
     const targetIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === targetId);

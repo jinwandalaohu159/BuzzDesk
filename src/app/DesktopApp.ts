@@ -884,12 +884,45 @@ export class DesktopApp {
   private decorateDesktopContextMenuItems(
     items: ReturnType<typeof desktopMenuItems>
   ): ReturnType<typeof desktopMenuItems> {
-    const autoArrangeDisabled = this.store.getSettings().layoutMode !== "free";
-    return items.map((item) => ({
-      ...item,
-      disabled: item.action === "autoArrange" ? autoArrangeDisabled : item.disabled,
-      submenu: item.submenu ? this.decorateDesktopContextMenuItems(item.submenu) : undefined
+    const hideAutoArrange = this.store.getSettings().layoutMode !== "free";
+    return this.compactContextMenuItems(items.flatMap((item) => {
+      if (hideAutoArrange && item.action === "autoArrange") {
+        return [];
+      }
+
+      const submenu = item.submenu ? this.decorateDesktopContextMenuItems(item.submenu) : undefined;
+      if (item.submenu && submenu?.length === 0) {
+        return [];
+      }
+
+      return [{ ...item, submenu }];
     }));
+  }
+
+  private compactContextMenuItems(
+    items: ReturnType<typeof desktopMenuItems>
+  ): ReturnType<typeof desktopMenuItems> {
+    const compact: ReturnType<typeof desktopMenuItems> = [];
+    let previousSeparator = true;
+
+    for (const item of items) {
+      if (item.separator) {
+        if (!previousSeparator) {
+          compact.push(item);
+        }
+        previousSeparator = true;
+        continue;
+      }
+
+      compact.push(item);
+      previousSeparator = false;
+    }
+
+    while (compact.at(-1)?.separator) {
+      compact.pop();
+    }
+
+    return compact;
   }
 
   private clampContextSubmenus() {
@@ -3376,15 +3409,16 @@ export class DesktopApp {
 
     const viewport = desktopViewport();
     const arrangedSettings: DesktopSettings = { ...settings, layoutMode: "auto" };
+    const orderedNodes = this.freeLayoutVisualNodes(nodes);
     const arrangedLayout = computeDesktopLayout(
-      nodes,
+      orderedNodes,
       viewport.width,
       viewport.height,
       arrangedSettings,
       viewport.offsetX,
       viewport.offsetY
     );
-    const positions = nodes
+    const positions = orderedNodes
       .map((node) => {
         const slot = arrangedLayout.get(node.id);
         if (!slot) {
@@ -3404,7 +3438,65 @@ export class DesktopApp {
       })
       .filter((entry): entry is { id: string; position: DesktopPosition } => Boolean(entry));
 
-    this.store.updateNodePositions(positions);
+    this.store.updateNodeOrderAndPositions(orderedNodes.map((node) => node.id), positions);
+  }
+
+  private freeLayoutVisualNodes(nodes: DesktopNode[]) {
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    const rowTolerance = Math.max(18, Math.round(metrics.height * 0.45));
+    const entries = nodes.map((node, index) => ({
+      node,
+      index,
+      slot: this.layout.get(node.id) ?? null
+    }));
+    const rows: Array<{
+      y: number;
+      entries: Array<{ node: DesktopNode; index: number; slot: LayoutSlot }>;
+    }> = [];
+    const missing: Array<{ node: DesktopNode; index: number }> = [];
+
+    entries
+      .sort((a, b) => this.compareFreeLayoutVisualEntries(a, b))
+      .forEach((entry) => {
+        if (!entry.slot) {
+          missing.push({ node: entry.node, index: entry.index });
+          return;
+        }
+
+        const row = rows.at(-1);
+        if (row && Math.abs(entry.slot.y - row.y) <= rowTolerance) {
+          row.entries.push({ node: entry.node, index: entry.index, slot: entry.slot });
+          row.y = Math.round((row.y * (row.entries.length - 1) + entry.slot.y) / row.entries.length);
+          return;
+        }
+
+        rows.push({
+          y: entry.slot.y,
+          entries: [{ node: entry.node, index: entry.index, slot: entry.slot }]
+        });
+      });
+
+    return [
+      ...rows.flatMap((row) =>
+        row.entries
+          .sort((a, b) => a.slot.x - b.slot.x || a.index - b.index)
+          .map((entry) => entry.node)
+      ),
+      ...missing
+        .sort((a, b) => a.index - b.index)
+        .map((entry) => entry.node)
+    ];
+  }
+
+  private compareFreeLayoutVisualEntries(
+    a: { index: number; slot: LayoutSlot | null },
+    b: { index: number; slot: LayoutSlot | null }
+  ) {
+    return (
+      (a.slot?.y ?? Number.POSITIVE_INFINITY) - (b.slot?.y ?? Number.POSITIVE_INFINITY) ||
+      (a.slot?.x ?? 0) - (b.slot?.x ?? 0) ||
+      a.index - b.index
+    );
   }
 
   private getSettingsValueSource(): DesktopSettings {
