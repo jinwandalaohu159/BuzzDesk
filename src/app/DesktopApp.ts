@@ -83,7 +83,8 @@ import type {
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
 const folderPagerHeight = 30;
-const mergeIntentDelayMs = 260;
+const dragStartDistancePx = 7;
+const mergeIntentDelayMs = 400;
 
 // Owns desktop interaction orchestration; visual rendering, layout math, state
 // mutation, and platform calls stay in their own modules.
@@ -110,9 +111,11 @@ interface ActiveDrag {
   frame: number | null;
   targetId: string | null;
   targetRect: DOMRect | null;
+  targetHitRect: Rect | null;
   targetElement: HTMLElement | null;
   candidateTargetId: string | null;
   candidateTargetRect: DOMRect | null;
+  candidateTargetHitRect: Rect | null;
   mergeIntentTimer: number | null;
   targetSnapshots: DragTargetSnapshot[];
   groupItems: DragGroupItem[];
@@ -135,6 +138,7 @@ interface DragGroupItem {
 interface DragTargetSnapshot {
   id: string;
   rect: DOMRect;
+  hitRect: Rect;
 }
 
 interface Rect {
@@ -1544,9 +1548,11 @@ export class DesktopApp {
       frame: null,
       targetId: null,
       targetRect: null,
+      targetHitRect: null,
       targetElement: null,
       candidateTargetId: null,
       candidateTargetRect: null,
+      candidateTargetHitRect: null,
       mergeIntentTimer: null,
       targetSnapshots: [],
       groupItems,
@@ -1601,7 +1607,7 @@ export class DesktopApp {
       const dx = drag.currentX - drag.startX;
       const dy = drag.currentY - drag.startY;
       const moved = Math.hypot(drag.currentX - drag.startX, drag.currentY - drag.startY);
-      if (moved < 4) {
+      if (moved < dragStartDistancePx) {
         return;
       }
 
@@ -1639,13 +1645,20 @@ export class DesktopApp {
       return;
     }
 
+    drag.currentX = event.clientX;
+    drag.currentY = event.clientY;
+
     if (drag.started && drag.targetId) {
-      this.suppressNextClick = true;
-      window.setTimeout(() => {
-        this.suppressNextClick = false;
-      }, 0);
-      void this.commitMerge(drag.targetId);
-      return;
+      if (drag.targetHitRect && pointInMergeRect(drag.currentX, drag.currentY, drag.targetHitRect)) {
+        this.suppressNextClick = true;
+        window.setTimeout(() => {
+          this.suppressNextClick = false;
+        }, 0);
+        void this.commitMerge(drag.targetId);
+        return;
+      }
+
+      this.setMergeTarget(null);
     }
 
     window.removeEventListener("pointermove", this.onPointerMove);
@@ -2178,7 +2191,7 @@ export class DesktopApp {
       return;
     }
 
-    if (drag.targetRect && pointInMergeRect(x, y, drag.targetRect)) {
+    if (drag.targetHitRect && pointInMergeRect(x, y, drag.targetHitRect)) {
       return;
     }
 
@@ -2192,6 +2205,7 @@ export class DesktopApp {
 
     if (drag.targetId === hit.id) {
       drag.targetRect = hit.rect;
+      drag.targetHitRect = hit.hitRect;
       return;
     }
 
@@ -2202,31 +2216,35 @@ export class DesktopApp {
   private setMergeCandidate(drag: ActiveDrag, candidate: DragTargetSnapshot) {
     if (drag.candidateTargetId === candidate.id) {
       drag.candidateTargetRect = candidate.rect;
+      drag.candidateTargetHitRect = candidate.hitRect;
       return;
     }
 
     this.clearMergeCandidate(drag);
     drag.candidateTargetId = candidate.id;
     drag.candidateTargetRect = candidate.rect;
+    drag.candidateTargetHitRect = candidate.hitRect;
     drag.mergeIntentTimer = window.setTimeout(() => {
       const active = this.drag;
       if (
         active !== drag ||
         active.committing ||
         active.candidateTargetId !== candidate.id ||
-        !active.candidateTargetRect
+        !active.candidateTargetRect ||
+        !active.candidateTargetHitRect
       ) {
         return;
       }
 
-      if (!pointInMergeRect(active.currentX, active.currentY, active.candidateTargetRect)) {
+      if (!pointInMergeRect(active.currentX, active.currentY, active.candidateTargetHitRect)) {
         this.clearMergeCandidate(active);
         return;
       }
 
       const targetRect = active.candidateTargetRect;
+      const targetHitRect = active.candidateTargetHitRect;
       this.clearMergeCandidate(active);
-      this.setMergeTarget(candidate.id, targetRect);
+      this.setMergeTarget(candidate.id, targetRect, targetHitRect);
       this.scheduleDragFrame();
     }, mergeIntentDelayMs);
   }
@@ -2242,6 +2260,7 @@ export class DesktopApp {
     }
     drag.candidateTargetId = null;
     drag.candidateTargetRect = null;
+    drag.candidateTargetHitRect = null;
   }
 
   private captureMergeTargets(drag: ActiveDrag): DragTargetSnapshot[] {
@@ -2276,9 +2295,11 @@ export class DesktopApp {
         return;
       }
 
+      const rect = element.getBoundingClientRect();
       snapshots.push({
         id,
-        rect: element.getBoundingClientRect()
+        rect,
+        hitRect: mergeHitRectForElement(element, rect)
       });
     });
 
@@ -2300,15 +2321,8 @@ export class DesktopApp {
     let bestDistanceSquared = Number.POSITIVE_INFINITY;
 
     for (const snapshot of snapshots) {
-      const rect = snapshot.rect;
-      const slopX = Math.min(12, rect.width * 0.08);
-      const slopY = Math.min(12, rect.height * 0.08);
-      const left = rect.left - slopX;
-      const right = rect.right + slopX;
-      const top = rect.top - slopY;
-      const bottom = rect.bottom + slopY;
-
-      if (x < left || x > right || y < top || y > bottom) {
+      const rect = snapshot.hitRect;
+      if (!pointInMergeRect(x, y, rect)) {
         continue;
       }
 
@@ -2324,7 +2338,11 @@ export class DesktopApp {
     return best;
   }
 
-  private setMergeTarget(targetId: string | null, targetRect: DOMRect | null = null) {
+  private setMergeTarget(
+    targetId: string | null,
+    targetRect: DOMRect | null = null,
+    targetHitRect: Rect | null = null
+  ) {
     const drag = this.drag;
     if (!drag) {
       return;
@@ -2344,6 +2362,7 @@ export class DesktopApp {
     this.clearTargetStyles();
     drag.targetId = targetId;
     drag.targetRect = null;
+    drag.targetHitRect = null;
     drag.targetElement = null;
 
     if (!targetId) {
@@ -2356,7 +2375,9 @@ export class DesktopApp {
     drag.lastPullY = 0;
     target?.style.setProperty("--merge-pull-x", "0px");
     target?.style.setProperty("--merge-pull-y", "0px");
-    drag.targetRect = targetRect ?? target?.getBoundingClientRect() ?? null;
+    const resolvedTargetRect = targetRect ?? target?.getBoundingClientRect() ?? null;
+    drag.targetRect = resolvedTargetRect;
+    drag.targetHitRect = targetHitRect ?? (target && resolvedTargetRect ? mergeHitRectForElement(target, resolvedTargetRect) : null);
     drag.targetElement = target ?? null;
   }
 
@@ -4883,6 +4904,29 @@ function normalizedRect(startX: number, startY: number, currentX: number, curren
   };
 }
 
+function mergeHitRectForElement(element: HTMLElement, tileRect: DOMRect): Rect {
+  const iconRect = element.querySelector<HTMLElement>(".icon-shell")?.getBoundingClientRect() ?? tileRect;
+  const padX = Math.max(6, Math.min(10, tileRect.width * 0.09));
+  const padY = Math.max(6, Math.min(10, tileRect.height * 0.08));
+  return expandedRect(iconRect, padX, padY);
+}
+
+function expandedRect(rect: Pick<DOMRect, "left" | "top" | "right" | "bottom">, padX: number, padY: number): Rect {
+  const left = rect.left - padX;
+  const top = rect.top - padY;
+  const right = rect.right + padX;
+  const bottom = rect.bottom + padY;
+
+  return {
+    left,
+    top,
+    right,
+    bottom,
+    width: right - left,
+    height: bottom - top
+  };
+}
+
 function rectsIntersect(a: Rect, b: Pick<DOMRect, "left" | "top" | "right" | "bottom">) {
   return a.left <= b.right && a.right >= b.left && a.top <= b.bottom && a.bottom >= b.top;
 }
@@ -4900,10 +4944,8 @@ function rectsOverlapWithMargin(
   );
 }
 
-function pointInMergeRect(x: number, y: number, rect: DOMRect) {
-  const slopX = Math.min(12, rect.width * 0.08);
-  const slopY = Math.min(12, rect.height * 0.08);
-  return x >= rect.left - slopX && x <= rect.right + slopX && y >= rect.top - slopY && y <= rect.bottom + slopY;
+function pointInMergeRect(x: number, y: number, rect: Pick<DOMRect, "left" | "top" | "right" | "bottom">) {
+  return x >= rect.left && x <= rect.right && y >= rect.top && y <= rect.bottom;
 }
 
 function roundFrameValue(value: number) {
