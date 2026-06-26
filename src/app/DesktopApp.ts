@@ -2226,9 +2226,23 @@ export class DesktopApp {
   ) {
     const metrics = desktopTileMetrics(this.store.getSettings());
     const candidates: DesktopPosition[] = [];
+    const pitchX = metrics.width + metrics.gapX;
+    const pitchY = metrics.height + metrics.gapY;
+    const columnReach = Math.ceil(viewport.width / Math.max(1, pitchX)) + 2;
+    const rowReach = Math.ceil(viewport.height / Math.max(1, pitchY)) + 2;
 
     const pushCandidate = (x: number, y: number) => {
       candidates.push(this.clampedDesktopPosition(x, y, width, height, viewport));
+    };
+    const pushAlignedCandidates = (x: number, y: number) => {
+      for (let step = -columnReach; step <= columnReach; step += 1) {
+        pushCandidate(x + step * pitchX, y);
+      }
+      for (let step = -rowReach; step <= rowReach; step += 1) {
+        if (step !== 0) {
+          pushCandidate(x, y + step * pitchY);
+        }
+      }
     };
 
     for (const node of this.store.getNodes()) {
@@ -2257,12 +2271,12 @@ export class DesktopApp {
       const horizontalPositions = edgeAxisPositions(target.x, target.width, width, metrics.width + metrics.gapX);
 
       verticalPositions.forEach((y) => {
-        pushCandidate(target.x - metrics.gapX - width, y);
-        pushCandidate(target.x + target.width + metrics.gapX, y);
+        pushAlignedCandidates(target.x - metrics.gapX - width, y);
+        pushAlignedCandidates(target.x + target.width + metrics.gapX, y);
       });
       horizontalPositions.forEach((x) => {
-        pushCandidate(x, target.y - metrics.gapY - height);
-        pushCandidate(x, target.y + target.height + metrics.gapY);
+        pushAlignedCandidates(x, target.y - metrics.gapY - height);
+        pushAlignedCandidates(x, target.y + target.height + metrics.gapY);
       });
     }
 
