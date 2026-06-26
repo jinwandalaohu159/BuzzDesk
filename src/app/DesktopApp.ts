@@ -878,6 +878,20 @@ export class DesktopApp {
   private clampContextSubmenus() {
     const bounds = this.contextMenuSafeArea();
     const submenuGap = 4;
+    const submenus = Array.from(this.contextMenuLayer.querySelectorAll<HTMLElement>(".context-submenu"));
+    const previousSubmenuStyles = submenus.map((submenu) => ({
+      submenu,
+      display: submenu.style.display,
+      visibility: submenu.style.visibility,
+      pointerEvents: submenu.style.pointerEvents
+    }));
+
+    submenus.forEach((submenu) => {
+      submenu.style.display = "grid";
+      submenu.style.visibility = "hidden";
+      submenu.style.pointerEvents = "none";
+    });
+
     this.contextMenuLayer.querySelectorAll<HTMLElement>(".context-menu-item.has-submenu").forEach((item) => {
       const submenu = Array.from(item.children).find(
         (child): child is HTMLElement =>
@@ -887,17 +901,37 @@ export class DesktopApp {
         return;
       }
 
-      const previousDisplay = submenu.style.display;
-      const previousVisibility = submenu.style.visibility;
-      const previousPointerEvents = submenu.style.pointerEvents;
+      const floating = submenu.classList.contains("is-floating");
       item.classList.remove("opens-left");
       submenu.classList.remove("is-left");
-      submenu.style.display = "grid";
-      submenu.style.visibility = "hidden";
-      submenu.style.pointerEvents = "none";
 
       const itemRect = item.getBoundingClientRect();
       let submenuRect = submenu.getBoundingClientRect();
+
+      if (floating) {
+        const floatingGap = -1;
+        let left = itemRect.right + floatingGap;
+        if (
+          left + submenuRect.width > bounds.right &&
+          itemRect.left - submenuRect.width - floatingGap >= bounds.left
+        ) {
+          item.classList.add("opens-left");
+          submenu.classList.add("is-left");
+          left = itemRect.left - submenuRect.width - floatingGap;
+        }
+        left = clampScroll(left, bounds.left, Math.max(bounds.left, bounds.right - submenuRect.width));
+
+        let top = itemRect.top - 8;
+        if (top + submenuRect.height > bounds.bottom) {
+          top -= top + submenuRect.height - bounds.bottom;
+        }
+        top = clampScroll(top, bounds.top, Math.max(bounds.top, bounds.bottom - submenuRect.height));
+
+        submenu.style.left = `${Math.round(left)}px`;
+        submenu.style.top = `${Math.round(top)}px`;
+        return;
+      }
+
       if (
         submenuRect.right > bounds.right &&
         itemRect.left - submenuRect.width - submenuGap >= bounds.left
@@ -923,9 +957,12 @@ export class DesktopApp {
       }
 
       submenu.style.top = `${Math.round(top)}px`;
-      submenu.style.display = previousDisplay;
-      submenu.style.visibility = previousVisibility;
-      submenu.style.pointerEvents = previousPointerEvents;
+    });
+
+    previousSubmenuStyles.forEach(({ submenu, display, visibility, pointerEvents }) => {
+      submenu.style.display = display;
+      submenu.style.visibility = visibility;
+      submenu.style.pointerEvents = pointerEvents;
     });
   }
 

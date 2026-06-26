@@ -1132,7 +1132,7 @@ function renderContextMenuNestedItem(
 
   if (item.submenu?.length) {
     const submenu = document.createElement("div");
-    submenu.className = "context-submenu";
+    submenu.className = "context-submenu is-floating";
     submenu.style.width = `${submenuWidth}px`;
     submenu.style.maxHeight = `${metrics.submenuMaxHeight}px`;
     submenu.style.top = `${-metrics.padding}px`;

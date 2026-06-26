@@ -1729,7 +1729,7 @@ input {
   display: grid;
   gap: 3px;
   overflow: visible;
-  animation: menu-open 110ms ease forwards;
+  animation: context-menu-open 110ms ease forwards;
 }
 
 .context-menu-item {
@@ -1827,6 +1827,18 @@ input {
 .context-submenu.is-left {
   left: auto;
   right: calc(100% + 4px);
+}
+
+.context-submenu.is-floating {
+  position: fixed;
+  left: 0;
+  right: auto;
+  top: 0;
+}
+
+.context-submenu.is-floating.is-left {
+  left: 0;
+  right: auto;
 }
 
 .context-menu-item:hover > .context-submenu,
@@ -1963,6 +1975,15 @@ input {
   to {
     opacity: 1;
     transform: translate3d(0, 0, 0) scale(1);
+  }
+}
+
+@keyframes context-menu-open {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
   }
 }
 
