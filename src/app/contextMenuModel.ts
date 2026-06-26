@@ -565,10 +565,14 @@ export function itemFallbackMenuItems(node: DesktopNode | AppNode | null, contex
   return items;
 }
 
-export function folderContextMenuItems(currentCoverSize: FolderCoverSize): ContextMenuItemModel[] {
+export function folderContextMenuItems(
+  currentCoverSize: FolderCoverSize,
+  compactPlacement: boolean
+): ContextMenuItemModel[] {
   return [
     { action: "rename" as const, label: "重命名" },
     { action: "folderRatio" as const, label: "布局" },
+    { action: "folderCompactPlacement" as const, label: "紧凑贴边", checked: compactPlacement },
     {
       label: "图标大小",
       submenu: [

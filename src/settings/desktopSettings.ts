@@ -56,7 +56,8 @@ export const defaultDesktopSettings: DesktopSettings = {
 export const defaultFolderAppearance: FolderAppearanceSettings = {
   folderCoverSize: "small",
   folderPanelColumns: 3,
-  folderPanelRows: 3
+  folderPanelRows: 3,
+  compactPlacement: false
 };
 
 export const folderRatioMin = 1;
@@ -215,7 +216,11 @@ export function normalizeFolderAppearance(
       folderRatioMin,
       folderRatioMax,
       fallback.folderPanelRows
-    )
+    ),
+    compactPlacement:
+      typeof appearance?.compactPlacement === "boolean"
+        ? appearance.compactPlacement
+        : fallback.compactPlacement
   };
 }
 

@@ -8,6 +8,10 @@ import {
 import { createFlowGrid, layoutDesktopFlow, spanSize, tileSpan } from "./flow";
 import type { DesktopNode, DesktopPosition, DesktopSettings, FolderAppearanceSettings, LayoutSlot } from "../types";
 
+interface FreeDesktopSnapOptions {
+  compactPlacement?: boolean;
+}
+
 export const folderGrid = {
   itemWidth: 92,
   minItemWidth: 76,
@@ -266,9 +270,10 @@ export function snapFreeDesktopLayoutPosition(
   height: number,
   viewportWidth: number,
   viewportHeight: number,
-  settings: DesktopSettings
+  settings: DesktopSettings,
+  options: FreeDesktopSnapOptions = {}
 ): DesktopPosition {
-  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings);
+  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings, options);
   const column = clamp(Math.round((x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
   const row = Math.max(0, Math.round((y - grid.top) / grid.rowPitch));
 
@@ -288,9 +293,10 @@ export function nearbyFreeDesktopLayoutPositions(
   height: number,
   viewportWidth: number,
   viewportHeight: number,
-  settings: DesktopSettings
+  settings: DesktopSettings,
+  options: FreeDesktopSnapOptions = {}
 ) {
-  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings);
+  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings, options);
   const startColumn = clamp(Math.round((preferred.x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
   const startRow = Math.max(0, Math.round((preferred.y - grid.top) / grid.rowPitch));
   const candidates: DesktopPosition[] = [preferred];
@@ -426,7 +432,12 @@ function freeGridCandidates(
   return candidates;
 }
 
-function freeGridPlacement(width: number, viewportWidth: number, settings: DesktopSettings) {
+function freeGridPlacement(
+  width: number,
+  viewportWidth: number,
+  settings: DesktopSettings,
+  options: FreeDesktopSnapOptions = {}
+) {
   const base = desktopTileMetrics(settings);
   const grid = createFlowGrid(viewportWidth, base, 0, 0);
   const columnSpan = tileSpan(width, base.width, grid.effectiveGapX, grid.columns);
@@ -435,7 +446,7 @@ function freeGridPlacement(width: number, viewportWidth: number, settings: Deskt
   return {
     base,
     grid,
-    xOffset: Math.max(0, Math.round((reservedWidth - width) / 2)),
+    xOffset: options.compactPlacement ? 0 : Math.max(0, Math.round((reservedWidth - width) / 2)),
     maxColumn: Math.max(0, grid.columns - columnSpan)
   };
 }

@@ -93,6 +93,7 @@ export type DesktopContextMenuAction =
   | "properties"
   | "settings"
   | "folderRatio"
+  | "folderCompactPlacement"
   | "folderIconSmall"
   | "folderIconMedium"
   | "folderIconLarge";
@@ -117,6 +118,7 @@ export interface FolderAppearanceSettings {
   folderCoverSize: FolderCoverSize;
   folderPanelColumns: number;
   folderPanelRows: number;
+  compactPlacement: boolean;
 }
 
 export interface AppNode extends DesktopSourceItem {

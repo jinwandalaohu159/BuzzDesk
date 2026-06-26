@@ -865,7 +865,8 @@ export class DesktopApp {
         desktopMenuItems(this.contextMenu.nativeItems, this.store.getSettings().contextMenu)
       );
     } else if (node?.type === "folder") {
-      items = folderContextMenuItems(node.appearance.folderCoverSize);
+      const appearance = normalizeFolderAppearance(node.appearance);
+      items = folderContextMenuItems(appearance.folderCoverSize, appearance.compactPlacement);
     } else {
       items = itemFallbackMenuItems(node, this.contextMenu.type === "item" ? "desktop" : "folder");
     }
@@ -2014,7 +2015,9 @@ export class DesktopApp {
               },
               item.width,
               item.height,
-              new Set([item.id])
+              new Set([item.id]),
+              [],
+              { compactPlacement: this.isCompactPlacementFolder(item.id) }
             )
           }));
 
@@ -2097,7 +2100,8 @@ export class DesktopApp {
     y: number,
     width: number,
     height: number,
-    viewport = desktopViewport()
+    viewport = desktopViewport(),
+    compactPlacement = false
   ): DesktopPosition {
     return snapFreeDesktopLayoutPosition(
       x,
@@ -2106,7 +2110,8 @@ export class DesktopApp {
       height,
       viewport.width,
       viewport.height,
-      this.store.getSettings()
+      this.store.getSettings(),
+      { compactPlacement }
     );
   }
 
@@ -2114,7 +2119,8 @@ export class DesktopApp {
     preferred: DesktopPosition,
     width: number,
     height: number,
-    viewport = desktopViewport()
+    viewport = desktopViewport(),
+    compactPlacement = false
   ) {
     return nearbyFreeDesktopLayoutPositions(
       preferred,
@@ -2122,7 +2128,8 @@ export class DesktopApp {
       height,
       viewport.width,
       viewport.height,
-      this.store.getSettings()
+      this.store.getSettings(),
+      { compactPlacement }
     );
   }
 
@@ -2189,12 +2196,17 @@ export class DesktopApp {
     width: number,
     height: number,
     excludeIds: ReadonlySet<string>,
-    extraOccupied: Array<{ x: number; y: number; width: number; height: number }> = []
+    extraOccupied: Array<{ x: number; y: number; width: number; height: number }> = [],
+    options: { compactPlacement?: boolean } = {}
   ): DesktopPosition {
     const viewport = desktopViewport();
     const occupied = [...this.desktopOccupiedRects(excludeIds), ...extraOccupied];
-    const snapped = this.snapDesktopPosition(preferred.x, preferred.y, width, height, viewport);
-    const candidates = this.nearbySnapCandidates(snapped, width, height, viewport);
+    const compactPlacement = options.compactPlacement === true;
+    const snapped = this.snapDesktopPosition(preferred.x, preferred.y, width, height, viewport, compactPlacement);
+    const candidates = uniqueDesktopPositions([
+      ...this.compactPlacementEdgeCandidates(preferred, width, height, excludeIds, viewport, compactPlacement),
+      ...this.nearbySnapCandidates(snapped, width, height, viewport, compactPlacement)
+    ]).sort((a, b) => desktopPositionDistance(a, preferred) - desktopPositionDistance(b, preferred));
 
     for (const candidate of candidates) {
       const rect = { ...candidate, width, height };
@@ -2204,6 +2216,61 @@ export class DesktopApp {
     }
 
     return snapped;
+  }
+
+  private compactPlacementEdgeCandidates(
+    preferred: { x: number; y: number },
+    width: number,
+    height: number,
+    excludeIds: ReadonlySet<string>,
+    viewport: ReturnType<typeof desktopViewport>,
+    movingCompactFolder: boolean
+  ) {
+    const metrics = desktopTileMetrics(this.store.getSettings());
+    const candidates: DesktopPosition[] = [];
+
+    const pushCandidate = (x: number, y: number) => {
+      candidates.push(this.clampedDesktopPosition(x, y, width, height, viewport));
+    };
+
+    for (const node of this.store.getNodes()) {
+      if (excludeIds.has(node.id)) {
+        continue;
+      }
+
+      const targetCompactFolder =
+        node.type === "folder" && normalizeFolderAppearance(node.appearance).compactPlacement;
+      if (!movingCompactFolder && !targetCompactFolder) {
+        continue;
+      }
+
+      const slot = this.layout.get(node.id);
+      if (!slot) {
+        continue;
+      }
+
+      const target = {
+        x: slot.x - viewport.offsetX,
+        y: slot.y - viewport.offsetY,
+        width: slot.width,
+        height: slot.height
+      };
+      const verticalPositions = edgeAxisPositions(target.y, target.height, height, metrics.height + metrics.gapY);
+      const horizontalPositions = edgeAxisPositions(target.x, target.width, width, metrics.width + metrics.gapX);
+
+      verticalPositions.forEach((y) => {
+        pushCandidate(target.x - metrics.gapX - width, y);
+        pushCandidate(target.x + target.width + metrics.gapX, y);
+      });
+      horizontalPositions.forEach((x) => {
+        pushCandidate(x, target.y - metrics.gapY - height);
+        pushCandidate(x, target.y + target.height + metrics.gapY);
+      });
+    }
+
+    return candidates.sort(
+      (a, b) => desktopPositionDistance(a, preferred) - desktopPositionDistance(b, preferred)
+    );
   }
 
   private desktopOccupiedRects(excludeIds: ReadonlySet<string>) {
@@ -3610,6 +3677,13 @@ export class DesktopApp {
         if (node.type === "folder") {
           this.showRatioDialog(node, menu.x, menu.y);
         }
+      } else if (action === "folderCompactPlacement") {
+        if (node.type === "folder") {
+          const appearance = normalizeFolderAppearance(node.appearance);
+          this.store.updateFolderAppearance(node.id, {
+            compactPlacement: !appearance.compactPlacement
+          });
+        }
       } else if (action === "folderIconSmall") {
         if (node.type === "folder") {
           this.store.updateFolderAppearance(node.id, { folderCoverSize: "small" });
@@ -3795,6 +3869,11 @@ export class DesktopApp {
   private findFolder(id: string): FolderNode | null {
     const node = this.findNode(id);
     return node?.type === "folder" ? node : null;
+  }
+
+  private isCompactPlacementFolder(id: string) {
+    const folder = this.findFolder(id);
+    return Boolean(folder && normalizeFolderAppearance(folder.appearance).compactPlacement);
   }
 
   private findFolderChild(folderId: string, childId: string): AppNode | null {
@@ -5227,6 +5306,43 @@ function rectsOverlapWithMargin(
     a.y < b.y + b.height + margin &&
     a.y + a.height + margin > b.y
   );
+}
+
+function edgeAxisPositions(start: number, size: number, itemSize: number, pitch: number) {
+  const positions: number[] = [];
+  const maxStart = start + Math.max(0, size - itemSize);
+  const safePitch = Math.max(1, pitch);
+  const push = (value: number) => {
+    const rounded = Math.round(value);
+    if (!positions.some((position) => Math.abs(position - rounded) < 1)) {
+      positions.push(rounded);
+    }
+  };
+
+  push(start);
+  for (let position = start + safePitch; position < maxStart - 0.5; position += safePitch) {
+    push(position);
+  }
+  push(maxStart);
+
+  return positions;
+}
+
+function uniqueDesktopPositions(positions: DesktopPosition[]) {
+  const seen = new Set<string>();
+  return positions.filter((position) => {
+    const key = `${Math.round(position.x)}:${Math.round(position.y)}`;
+    if (seen.has(key)) {
+      return false;
+    }
+
+    seen.add(key);
+    return true;
+  });
+}
+
+function desktopPositionDistance(a: { x: number; y: number }, b: { x: number; y: number }) {
+  return Math.hypot(a.x - b.x, a.y - b.y);
 }
 
 function pointInMergeRect(x: number, y: number, rect: Pick<DOMRect, "left" | "top" | "right" | "bottom">) {
