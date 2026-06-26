@@ -268,12 +268,7 @@ export function snapFreeDesktopLayoutPosition(
   viewportHeight: number,
   settings: DesktopSettings
 ): DesktopPosition {
-  const base = desktopTileMetrics(settings);
-  const grid = createFlowGrid(viewportWidth, base, 0, 0);
-  const columnSpan = tileSpan(width, base.width, grid.effectiveGapX, grid.columns);
-  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
-  const xOffset = Math.max(0, Math.round((reservedWidth - width) / 2));
-  const maxColumn = Math.max(0, grid.columns - columnSpan);
+  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings);
   const column = clamp(Math.round((x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
   const row = Math.max(0, Math.round((y - grid.top) / grid.rowPitch));
 
@@ -295,12 +290,7 @@ export function nearbyFreeDesktopLayoutPositions(
   viewportHeight: number,
   settings: DesktopSettings
 ) {
-  const base = desktopTileMetrics(settings);
-  const grid = createFlowGrid(viewportWidth, base, 0, 0);
-  const columnSpan = tileSpan(width, base.width, grid.effectiveGapX, grid.columns);
-  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
-  const xOffset = Math.max(0, Math.round((reservedWidth - width) / 2));
-  const maxColumn = Math.max(0, grid.columns - columnSpan);
+  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings);
   const startColumn = clamp(Math.round((preferred.x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
   const startRow = Math.max(0, Math.round((preferred.y - grid.top) / grid.rowPitch));
   const candidates: DesktopPosition[] = [preferred];
@@ -411,12 +401,7 @@ function freeGridCandidates(
   viewportOffsetY: number
 ) {
   const candidates: Array<{ x: number; y: number }> = [];
-  const base = desktopTileMetrics(settings);
-  const grid = createFlowGrid(viewportWidth, base, 0, 0);
-  const columnSpan = tileSpan(tile.width, base.width, grid.effectiveGapX, grid.columns);
-  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
-  const xOffset = Math.max(0, Math.round((reservedWidth - tile.width) / 2));
-  const maxColumn = Math.max(0, grid.columns - columnSpan);
+  const { base, grid, xOffset, maxColumn } = freeGridPlacement(tile.width, viewportWidth, settings);
   const maxAvailableY = Math.max(0, viewportHeight - tile.height);
   const maxLocalY = Math.max(Math.min(base.paddingY, maxAvailableY), maxAvailableY - base.paddingY);
   const maxRow = Math.max(0, Math.ceil((maxLocalY - grid.top) / grid.rowPitch));
@@ -439,6 +424,20 @@ function freeGridCandidates(
   }
 
   return candidates;
+}
+
+function freeGridPlacement(width: number, viewportWidth: number, settings: DesktopSettings) {
+  const base = desktopTileMetrics(settings);
+  const grid = createFlowGrid(viewportWidth, base, 0, 0);
+  const columnSpan = tileSpan(width, base.width, grid.effectiveGapX, grid.columns);
+  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
+
+  return {
+    base,
+    grid,
+    xOffset: Math.max(0, Math.round((reservedWidth - width) / 2)),
+    maxColumn: Math.max(0, grid.columns - columnSpan)
+  };
 }
 
 function uniqueLayoutCandidates(candidates: Array<{ x: number; y: number }>) {

@@ -3456,7 +3456,12 @@ export class DesktopApp {
     const missing: Array<{ node: DesktopNode; index: number }> = [];
 
     entries
-      .sort((a, b) => this.compareFreeLayoutVisualEntries(a, b))
+      .sort(
+        (a, b) =>
+          (a.slot?.y ?? Number.POSITIVE_INFINITY) - (b.slot?.y ?? Number.POSITIVE_INFINITY) ||
+          (a.slot?.x ?? 0) - (b.slot?.x ?? 0) ||
+          a.index - b.index
+      )
       .forEach((entry) => {
         if (!entry.slot) {
           missing.push({ node: entry.node, index: entry.index });
@@ -3486,17 +3491,6 @@ export class DesktopApp {
         .sort((a, b) => a.index - b.index)
         .map((entry) => entry.node)
     ];
-  }
-
-  private compareFreeLayoutVisualEntries(
-    a: { index: number; slot: LayoutSlot | null },
-    b: { index: number; slot: LayoutSlot | null }
-  ) {
-    return (
-      (a.slot?.y ?? Number.POSITIVE_INFINITY) - (b.slot?.y ?? Number.POSITIVE_INFINITY) ||
-      (a.slot?.x ?? 0) - (b.slot?.x ?? 0) ||
-      a.index - b.index
-    );
   }
 
   private getSettingsValueSource(): DesktopSettings {

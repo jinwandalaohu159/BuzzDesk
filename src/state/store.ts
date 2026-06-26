@@ -258,7 +258,7 @@ export class DesktopStore {
       ...remaining.slice(insertionIndex)
     ];
 
-    if (next.map((node) => node.id).join("\n") === this.nodes.map((node) => node.id).join("\n")) {
+    if (sameNodeOrder(next, this.nodes)) {
       return false;
     }
 
@@ -334,7 +334,7 @@ export class DesktopStore {
       })
       .map((entry) => entry.node);
 
-    if (next.map((node) => node.id).join("\n") !== this.nodes.map((node) => node.id).join("\n")) {
+    if (!sameNodeOrder(next, this.nodes)) {
       changed = true;
     }
 
@@ -631,6 +631,10 @@ function normalizePosition(position: unknown): DesktopPosition | null {
     x: Math.round(Number(value.x)),
     y: Math.round(Number(value.y))
   };
+}
+
+function sameNodeOrder(a: DesktopNode[], b: DesktopNode[]) {
+  return a.length === b.length && a.every((node, index) => node.id === b[index]?.id);
 }
 
 function sameItem(a: AppNode, b: AppNode) {
