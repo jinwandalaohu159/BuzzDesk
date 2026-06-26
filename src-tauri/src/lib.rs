@@ -738,8 +738,8 @@ mod platform {
     use windows::Win32::UI::Shell::{
         Common::{ITEMIDLIST, STRRET},
         DragQueryFileW, FOLDERID_Desktop, FOLDERID_PublicDesktop, IContextMenu, IContextMenu2,
-        IContextMenu3, ILFree, IShellFolder, IShellLinkW, SHBindToParent, SHFileOperationW,
-        SHGetDesktopFolder, SHGetFileInfoW, SHGetImageList, SHGetKnownFolderPath,
+        IContextMenu3, ILFree, IShellFolder, IShellLinkW, SHBindToParent, SHEmptyRecycleBinW,
+        SHFileOperationW, SHGetDesktopFolder, SHGetFileInfoW, SHGetImageList, SHGetKnownFolderPath,
         SHGetPathFromIDListW, SHParseDisplayName, ShellExecuteExW, ShellExecuteW, ShellLink,
         StrRetToBufW, CMF_CANRENAME, CMF_NORMAL, CMINVOKECOMMANDINFO, DROPFILES, FOF_ALLOWUNDO,
         FOF_NOCONFIRMATION, FO_DELETE, GCS_VERBW, HDROP, KF_FLAG_DEFAULT, SEE_MASK_IDLIST,
@@ -749,18 +749,19 @@ mod platform {
         SLGP_UNCPRIORITY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
-        CallWindowProcW, CreatePopupMenu, DefWindowProcW, DestroyIcon, DestroyMenu, EnumWindows,
-        FindWindowExW, FindWindowW, GetClassNameW, GetClientRect, GetCursorPos, GetIconInfo,
-        GetMenuItemCount, GetMenuItemInfoW, GetSystemMetrics, GetWindowLongW, GetWindowRect,
-        PrivateExtractIconsW, SendMessageTimeoutW, SetForegroundWindow, SetParent,
-        SetWindowLongPtrW, SetWindowLongW, SetWindowPos, ShowWindow, TrackPopupMenuEx,
-        GWLP_WNDPROC, GWL_STYLE, HICON, HMENU, HTCLIENT, ICONINFO, MENUITEMINFOW, MFS_CHECKED,
-        MFS_DISABLED, MFS_GRAYED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_STRING,
-        MIIM_SUBMENU, SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
-        SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW,
-        SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
-        WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST, WNDPROC, WS_CAPTION, WS_CHILD,
-        WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
+        CallWindowProcW, CreatePopupMenu, CreateWindowExW, DefWindowProcW, DestroyIcon,
+        DestroyMenu, DestroyWindow, EnumWindows, FindWindowExW, FindWindowW, GetClassNameW,
+        GetClientRect, GetCursorPos, GetIconInfo, GetMenuItemCount, GetMenuItemInfoW,
+        GetSystemMetrics, GetWindowLongW, GetWindowRect, PrivateExtractIconsW, SendMessageTimeoutW,
+        SetForegroundWindow, SetParent, SetWindowLongPtrW, SetWindowLongW, SetWindowPos,
+        ShowWindow, TrackPopupMenuEx, GWLP_WNDPROC, GWL_STYLE, HICON, HMENU, HTCLIENT, ICONINFO,
+        MENUITEMINFOW, MFS_CHECKED, MFS_DISABLED, MFS_GRAYED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID,
+        MIIM_STATE, MIIM_STRING, MIIM_SUBMENU, SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
+        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_SHOWWINDOW,
+        SW_HIDE, SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON,
+        WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST, WNDPROC,
+        WS_CAPTION, WS_CHILD, WS_EX_TOOLWINDOW, WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_OVERLAPPED,
+        WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
     };
 
     pub fn scan_desktop_items() -> Result<Vec<DesktopItem>, String> {
@@ -1268,7 +1269,8 @@ mod platform {
     ) -> Result<NativeContextMenuResult, String> {
         let (context_menu, menu) = desktop_context_menu(owner)?;
         initialize_native_context_menu_submenus(&context_menu, menu, 1);
-        let result = invoke_context_menu_command(&context_menu, owner, command_id as usize);
+        let result =
+            invoke_context_menu_command(&context_menu, owner, command_id as usize, false, None);
         let _ = DestroyMenu(menu);
         result
     }
@@ -1310,7 +1312,8 @@ mod platform {
             return Err("SHParseDisplayName returned an empty pidl".to_string());
         }
 
-        let result = native_context_menu_for_pidl(pidl, owner, x, y);
+        let result =
+            native_context_menu_for_pidl(pidl, owner, x, y, is_recycle_bin_launch_id(launch_id));
         ILFree(Some(pidl));
         result
     }
@@ -1320,6 +1323,7 @@ mod platform {
         owner: HWND,
         x: i32,
         y: i32,
+        is_recycle_bin: bool,
     ) -> Result<NativeContextMenuResult, String> {
         let mut child: *mut ITEMIDLIST = std::ptr::null_mut();
         let parent: IShellFolder = SHBindToParent(pidl, Some(&mut child))
@@ -1333,7 +1337,7 @@ mod platform {
             .GetUIObjectOf(owner, &[child as *const ITEMIDLIST], None)
             .map_err(|error| format!("GetUIObjectOf(IContextMenu) failed: {error}"))?;
 
-        show_context_menu(context_menu, owner, x, y)
+        show_context_menu(context_menu, owner, x, y, is_recycle_bin)
     }
 
     unsafe fn enumerate_native_context_menu(
@@ -1483,6 +1487,41 @@ mod platform {
         clean_native_menu_label(&String::from_utf16_lossy(&buffer[..len]))
     }
 
+    unsafe fn native_menu_command_label(menu: HMENU, command: u32) -> Option<String> {
+        let count = GetMenuItemCount(Some(menu));
+        if count <= 0 {
+            return None;
+        }
+
+        for index in 0..count {
+            let mut info = MENUITEMINFOW {
+                cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
+                fMask: MIIM_FTYPE | MIIM_ID | MIIM_SUBMENU,
+                ..Default::default()
+            };
+
+            if GetMenuItemInfoW(menu, index as u32, true, &mut info).is_err() {
+                continue;
+            }
+
+            if (info.fType & MFT_SEPARATOR) == MFT_SEPARATOR {
+                continue;
+            }
+
+            if info.wID == command {
+                return Some(native_menu_item_label(menu, index as u32));
+            }
+
+            if !info.hSubMenu.is_invalid() {
+                if let Some(label) = native_menu_command_label(info.hSubMenu, command) {
+                    return Some(label);
+                }
+            }
+        }
+
+        None
+    }
+
     fn clean_native_menu_label(label: &str) -> String {
         label
             .split('\t')
@@ -1579,9 +1618,22 @@ mod platform {
         context_menu: &IContextMenu,
         owner: HWND,
         command_id: usize,
+        is_recycle_bin: bool,
+        command_label: Option<&str>,
     ) -> Result<NativeContextMenuResult, String> {
         let canonical_verb = context_menu_command_verb(context_menu, command_id);
         if canonical_verb.as_deref() == Some("rename") {
+            return Ok(NativeContextMenuResult {
+                invoked: true,
+                verb: canonical_verb,
+            });
+        }
+
+        if is_recycle_bin && is_empty_recycle_bin_command(canonical_verb.as_deref(), command_label)
+        {
+            empty_recycle_bin_with_tool_owner().map_err(|error| {
+                format!("SHEmptyRecycleBinW failed for recycle bin context command: {error}")
+            })?;
             return Ok(NativeContextMenuResult {
                 invoked: true,
                 verb: canonical_verb,
@@ -1608,11 +1660,73 @@ mod platform {
         })
     }
 
+    unsafe fn empty_recycle_bin_with_tool_owner() -> Result<(), String> {
+        let owner = CreateWindowExW(
+            WS_EX_TOOLWINDOW,
+            w!("STATIC"),
+            w!("BuzzDesk Shell Owner"),
+            WS_OVERLAPPED,
+            0,
+            0,
+            0,
+            0,
+            None,
+            None,
+            None,
+            None,
+        )
+        .map_err(|error| format!("CreateWindowExW failed: {error}"))?;
+
+        const HRESULT_FROM_WIN32_ERROR_CANCELLED: i32 = 0x800704C7u32 as i32;
+        let result = match SHEmptyRecycleBinW(Some(owner), PCWSTR::null(), 0) {
+            Ok(()) => Ok(()),
+            Err(error) if error.code().0 == HRESULT_FROM_WIN32_ERROR_CANCELLED => Ok(()),
+            Err(error) => Err(error.to_string()),
+        };
+        let _ = DestroyWindow(owner);
+        result
+    }
+
+    fn is_empty_recycle_bin_command(verb: Option<&str>, label: Option<&str>) -> bool {
+        if matches!(
+            verb,
+            Some("empty") | Some("emptyrecyclebin") | Some("emptyrecyclebinfolder")
+        ) {
+            return true;
+        }
+
+        let Some(label) = label else {
+            return false;
+        };
+
+        let normalized = label
+            .replace("&&", "\u{0}")
+            .replace('&', "")
+            .replace('\u{0}', "&")
+            .replace('\u{2026}', "")
+            .replace("...", "")
+            .trim()
+            .to_ascii_lowercase();
+
+        (normalized.contains("empty") && normalized.contains("recycle"))
+            || (label.contains('\u{6e05}')
+                && label.contains('\u{7a7a}')
+                && label.contains("\u{56de}\u{6536}\u{7ad9}"))
+    }
+
+    fn is_recycle_bin_launch_id(launch_id: &str) -> bool {
+        let normalized = launch_id.trim().to_ascii_lowercase();
+        normalized == "shell:recyclebinfolder"
+            || normalized == "shell:recycle-bin"
+            || normalized.contains("645ff040-5081-101b-9f08-00aa002f954e")
+    }
+
     unsafe fn show_context_menu(
         context_menu: IContextMenu,
         owner: HWND,
         x: i32,
         y: i32,
+        is_recycle_bin: bool,
     ) -> Result<NativeContextMenuResult, String> {
         let menu = CreatePopupMenu().map_err(|error| format!("CreatePopupMenu failed: {error}"))?;
         let first_command = 1u32;
@@ -1653,7 +1767,14 @@ mod platform {
         }
 
         let command_id = command.saturating_sub(first_command) as usize;
-        let invoke_result = invoke_context_menu_command(&context_menu, owner, command_id);
+        let command_label = native_menu_command_label(menu, command);
+        let invoke_result = invoke_context_menu_command(
+            &context_menu,
+            owner,
+            command_id,
+            is_recycle_bin,
+            command_label.as_deref(),
+        );
         let _ = DestroyMenu(menu);
         invoke_result
     }
