@@ -34,6 +34,7 @@ import {
   renderIcon,
   renderSettingsPriorityPopover,
   renderSettingsLayer,
+  renderDeleteConfirmDialog,
   renderRatioDialog
 } from "../render/components";
 import {
@@ -219,6 +220,10 @@ interface SettingsContextMenuDragState {
   lastTarget: SettingsContextMenuDropTarget | null;
 }
 
+interface DeleteConfirmState {
+  resolve: (confirmed: boolean) => void;
+}
+
 export class DesktopApp {
   private readonly store = new DesktopStore();
   private readonly root: HTMLElement;
@@ -272,6 +277,7 @@ export class DesktopApp {
   private contextOverlayVersion = 0;
   private cachedDesktopNativeMenuItems: NativeContextMenuItem[] | null = null;
   private desktopNativeMenuLoad: Promise<NativeContextMenuItem[]> | null = null;
+  private deleteConfirm: DeleteConfirmState | null = null;
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -432,7 +438,9 @@ export class DesktopApp {
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
     this.settingsLayer.addEventListener("scroll", () => this.renderSettingsPriorityMenu(), true);
     this.contextMenuLayer.addEventListener("click", (event) => {
-      if (this.ratioDialogTargetId) {
+      if (this.deleteConfirm) {
+        this.onDeleteConfirmClick(event);
+      } else if (this.ratioDialogTargetId) {
         this.onRatioDialogClick(event);
       } else {
         void this.onContextMenuClick(event);
@@ -845,6 +853,11 @@ export class DesktopApp {
   }
 
   private renderContextMenu() {
+    if (this.deleteConfirm) {
+      this.contextMenuLayer.classList.add("is-open");
+      return;
+    }
+
     if (this.ratioDialogTargetId) {
       this.contextMenuLayer.classList.add("is-open");
       return;
@@ -3812,6 +3825,43 @@ export class DesktopApp {
     this.contextMenuLayer.replaceChildren();
   }
 
+  private confirmDeleteItem(node: AppNode) {
+    this.beginContextOverlayRequest();
+    return new Promise<boolean>((resolve) => {
+      this.deleteConfirm = { resolve };
+      this.contextMenuLayer.classList.add("is-open");
+      this.contextMenuLayer.replaceChildren(renderDeleteConfirmDialog({ name: node.name }));
+      requestAnimationFrame(() => {
+        this.contextMenuLayer.querySelector<HTMLButtonElement>("[data-delete-confirm]")?.focus();
+      });
+    });
+  }
+
+  private closeDeleteConfirm(confirmed: boolean) {
+    const pending = this.deleteConfirm;
+    if (!pending) {
+      return;
+    }
+
+    this.invalidateContextOverlay();
+    this.deleteConfirm = null;
+    this.contextMenuLayer.classList.remove("is-open");
+    this.contextMenuLayer.replaceChildren();
+    pending.resolve(confirmed);
+  }
+
+  private onDeleteConfirmClick(event: MouseEvent) {
+    const target = event.target as HTMLElement;
+    if (target.closest("[data-delete-confirm]")) {
+      this.closeDeleteConfirm(true);
+      return;
+    }
+
+    if (target.closest("[data-delete-cancel]") || (target.dataset.deleteBackdrop && !target.closest("[data-delete-dialog]"))) {
+      this.closeDeleteConfirm(false);
+    }
+  }
+
   private onRatioDialogConfirm() {
     if (!this.ratioDialogTargetId) {
       return;
@@ -3848,24 +3898,78 @@ export class DesktopApp {
   }
 
   private onContextOverlayKeyDown(event: KeyboardEvent) {
+    if (this.handleDeleteConfirmKeyDown(event)) {
+      return;
+    }
+
     if (!this.ratioDialogTargetId) {
       return;
     }
 
     if (event.key === "Enter") {
       event.preventDefault();
+      event.stopPropagation();
       this.onRatioDialogConfirm();
       return;
     }
 
     if (event.key === "Escape") {
       event.preventDefault();
+      event.stopPropagation();
       this.closeRatioDialog();
     }
   }
 
+  private handleDeleteConfirmKeyDown(event: KeyboardEvent) {
+    if (!this.deleteConfirm) {
+      return false;
+    }
+
+    if (event.key === "Enter") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeDeleteConfirm(true);
+      return true;
+    }
+
+    if (event.key === "Escape") {
+      event.preventDefault();
+      event.stopPropagation();
+      this.closeDeleteConfirm(false);
+      return true;
+    }
+
+    if (event.key === "Tab") {
+      const buttons = Array.from(
+        this.contextMenuLayer.querySelectorAll<HTMLButtonElement>("[data-delete-cancel], [data-delete-confirm]")
+      );
+      const currentIndex = buttons.findIndex((button) => button === document.activeElement);
+      const direction = event.shiftKey ? -1 : 1;
+      const nextIndex =
+        currentIndex >= 0
+          ? (currentIndex + direction + buttons.length) % buttons.length
+          : (event.shiftKey ? buttons.length - 1 : 0);
+
+      event.preventDefault();
+      event.stopPropagation();
+      buttons[nextIndex]?.focus();
+      return true;
+    }
+
+    event.stopPropagation();
+    return true;
+  }
+
   private handleContextMenuAccessKey(event: KeyboardEvent) {
-    if (!this.contextMenu || this.ratioDialogTargetId || event.ctrlKey || event.metaKey || event.altKey || event.key.length !== 1) {
+    if (
+      !this.contextMenu ||
+      this.ratioDialogTargetId ||
+      this.deleteConfirm ||
+      event.ctrlKey ||
+      event.metaKey ||
+      event.altKey ||
+      event.key.length !== 1
+    ) {
       return false;
     }
 
@@ -4112,6 +4216,7 @@ export class DesktopApp {
     this.invalidateContextOverlay();
     this.contextMenu = null;
     this.ratioDialogTargetId = null;
+    this.resolveDeleteConfirm(false);
     this.contextMenuLayer.classList.remove("is-open");
     this.contextMenuLayer.replaceChildren();
   }
@@ -4120,6 +4225,7 @@ export class DesktopApp {
     this.invalidateContextOverlay();
     this.contextMenu = null;
     this.ratioDialogTargetId = null;
+    this.resolveDeleteConfirm(false);
     this.contextMenuLayer.classList.remove("is-open");
     this.contextMenuLayer.replaceChildren();
     return this.contextOverlayVersion;
@@ -4131,6 +4237,16 @@ export class DesktopApp {
 
   private isCurrentContextOverlayRequest(version: number) {
     return this.contextOverlayVersion === version;
+  }
+
+  private resolveDeleteConfirm(confirmed: boolean) {
+    const pending = this.deleteConfirm;
+    if (!pending) {
+      return;
+    }
+
+    this.deleteConfirm = null;
+    pending.resolve(confirmed);
   }
 
   private pruneDetachedUiState() {
@@ -4183,6 +4299,13 @@ export class DesktopApp {
 
   private onGlobalPointerDown(event: PointerEvent) {
     const target = event.target as HTMLElement;
+
+    if (this.deleteConfirm) {
+      if (!target.closest(".delete-confirm-dialog")) {
+        this.closeDeleteConfirm(false);
+      }
+      return;
+    }
 
     if (this.ratioDialogTargetId) {
       if (!target.closest(".ratio-dialog")) {
@@ -4375,6 +4498,7 @@ export class DesktopApp {
         this.renamingId ||
         this.renamingFolderChild ||
         this.editingFolder ||
+        this.deleteConfirm ||
         this.ratioDialogTargetId ||
         this.contextMenu ||
         this.settingsOpen
@@ -4579,6 +4703,10 @@ export class DesktopApp {
   }
 
   private async onWindowKeyDown(event: KeyboardEvent) {
+    if (this.handleDeleteConfirmKeyDown(event)) {
+      return;
+    }
+
     const target = event.target as HTMLElement;
     if (target.closest("input, textarea")) {
       return;
@@ -4694,7 +4822,7 @@ export class DesktopApp {
       return;
     }
 
-    if (!window.confirm(`\u5220\u9664\u201c${node.name}\u201d\uff1f`)) {
+    if (!(await this.confirmDeleteItem(node))) {
       return;
     }
 

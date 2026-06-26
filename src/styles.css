@@ -1965,6 +1965,147 @@ input {
   background: rgba(255, 255, 255, 0.28);
 }
 
+.delete-confirm-backdrop {
+  position: fixed;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  padding: 24px;
+  background: rgba(5, 8, 13, 0.18);
+  backdrop-filter: blur(2px);
+  animation: context-menu-open 110ms ease forwards;
+}
+
+.delete-confirm-dialog {
+  width: min(420px, calc(100vw - 48px));
+  border-radius: 16px;
+  padding: 18px;
+  color: white;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.07)),
+    rgba(22, 27, 35, 0.88);
+  border: 1px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 28px 72px rgba(0, 0, 0, 0.42), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+  backdrop-filter: blur(24px) saturate(1.18);
+  display: grid;
+  grid-template-columns: 44px 1fr;
+  gap: 14px;
+  animation: menu-open 130ms ease forwards;
+}
+
+.delete-confirm-icon {
+  width: 42px;
+  height: 42px;
+  border-radius: 12px;
+  position: relative;
+  background: rgba(255, 92, 92, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 145, 145, 0.24);
+}
+
+.delete-confirm-icon::before,
+.delete-confirm-icon::after {
+  content: "";
+  position: absolute;
+  left: 14px;
+  right: 14px;
+  background: rgba(255, 238, 238, 0.92);
+}
+
+.delete-confirm-icon::before {
+  top: 11px;
+  height: 3px;
+  border-radius: 999px;
+  box-shadow: -4px 5px 0 -1px rgba(255, 238, 238, 0.92), 4px 5px 0 -1px rgba(255, 238, 238, 0.92);
+}
+
+.delete-confirm-icon::after {
+  top: 18px;
+  bottom: 10px;
+  border-radius: 2px 2px 5px 5px;
+}
+
+.delete-confirm-body {
+  min-width: 0;
+  display: grid;
+  gap: 6px;
+}
+
+.delete-confirm-body h2 {
+  margin: 0;
+  font-size: 18px;
+  line-height: 24px;
+  font-weight: 650;
+  letter-spacing: 0;
+  text-shadow: var(--text-shadow);
+}
+
+.delete-confirm-name {
+  max-width: 100%;
+  color: rgba(255, 255, 255, 0.96);
+  font-size: 14px;
+  line-height: 20px;
+  font-weight: 600;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  text-shadow: var(--text-shadow);
+}
+
+.delete-confirm-body p {
+  margin: 0;
+  color: rgba(255, 255, 255, 0.68);
+  font-size: 13px;
+  line-height: 19px;
+}
+
+.delete-confirm-actions {
+  grid-column: 1 / -1;
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+.delete-confirm-cancel,
+.delete-confirm-confirm {
+  height: 34px;
+  min-width: 76px;
+  border: 0;
+  border-radius: 9px;
+  padding: 0 16px;
+  color: white;
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.delete-confirm-cancel {
+  color: rgba(255, 255, 255, 0.8);
+  background: rgba(255, 255, 255, 0.1);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16);
+}
+
+.delete-confirm-cancel:hover,
+.delete-confirm-cancel:focus-visible {
+  background: rgba(255, 255, 255, 0.16);
+}
+
+.delete-confirm-confirm {
+  background: linear-gradient(180deg, rgba(255, 111, 111, 0.95), rgba(218, 57, 57, 0.95));
+  box-shadow: 0 10px 24px rgba(190, 40, 40, 0.26), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.delete-confirm-confirm:hover,
+.delete-confirm-confirm:focus-visible {
+  background: linear-gradient(180deg, rgba(255, 128, 128, 0.98), rgba(226, 67, 67, 0.98));
+}
+
+.delete-confirm-cancel:focus-visible,
+.delete-confirm-confirm:focus-visible {
+  outline: 2px solid rgba(255, 255, 255, 0.46);
+  outline-offset: 2px;
+}
+
 @keyframes fade-in {
   to {
     opacity: 1;

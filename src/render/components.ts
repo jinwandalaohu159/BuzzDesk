@@ -1314,3 +1314,56 @@ export function renderRatioDialog(options: {
   dialog.append(label, inputRow, actions);
   return dialog;
 }
+
+export function renderDeleteConfirmDialog(options: { name: string }) {
+  const backdrop = document.createElement("div");
+  backdrop.className = "delete-confirm-backdrop";
+  backdrop.dataset.deleteBackdrop = "true";
+
+  const dialog = document.createElement("section");
+  dialog.className = "delete-confirm-dialog";
+  dialog.setAttribute("role", "dialog");
+  dialog.setAttribute("aria-modal", "true");
+  dialog.setAttribute("aria-labelledby", "delete-confirm-title");
+  dialog.dataset.deleteDialog = "true";
+
+  const icon = document.createElement("div");
+  icon.className = "delete-confirm-icon";
+  icon.setAttribute("aria-hidden", "true");
+
+  const body = document.createElement("div");
+  body.className = "delete-confirm-body";
+
+  const title = document.createElement("h2");
+  title.id = "delete-confirm-title";
+  title.textContent = "\u5220\u9664\u9879\u76ee";
+
+  const name = document.createElement("div");
+  name.className = "delete-confirm-name";
+  name.textContent = `\u201c${options.name}\u201d`;
+
+  const message = document.createElement("p");
+  message.textContent = "\u5c06\u79fb\u5230\u56de\u6536\u7ad9\uff0c\u53ef\u4ee5\u5728\u56de\u6536\u7ad9\u4e2d\u8fd8\u539f\u3002";
+
+  body.append(title, name, message);
+
+  const actions = document.createElement("div");
+  actions.className = "delete-confirm-actions";
+
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "delete-confirm-cancel";
+  cancel.dataset.deleteCancel = "true";
+  cancel.textContent = "\u53d6\u6d88";
+
+  const confirm = document.createElement("button");
+  confirm.type = "button";
+  confirm.className = "delete-confirm-confirm";
+  confirm.dataset.deleteConfirm = "true";
+  confirm.textContent = "\u5220\u9664";
+
+  actions.append(cancel, confirm);
+  dialog.append(icon, body, actions);
+  backdrop.append(dialog);
+  return backdrop;
+}
