@@ -224,6 +224,128 @@ export async function playMergeGroupIntoTarget(
   }
 }
 
+export async function playTrashGroupIntoTarget(
+  sourceElements: HTMLElement[],
+  targetElement: HTMLElement,
+  options: { restoreSources?: boolean } = {}
+) {
+  const sources = sourceElements
+    .map((element) => ({ element, rect: element.getBoundingClientRect() }))
+    .filter((source) => source.rect.width && source.rect.height);
+  const targetRect = targetElement.getBoundingClientRect();
+
+  if (sources.length === 0 || !targetRect.width || !targetRect.height) {
+    return;
+  }
+
+  const originalSourceVisibilities = sources.map((source) => source.element.style.visibility);
+  const originalTargetTransform = targetElement.style.transform;
+  const originalTargetTransformOrigin = targetElement.style.transformOrigin;
+  const baseTargetTransform = originalTargetTransform || "translate3d(0, 0, 0)";
+  const targetCenterX = targetRect.left + targetRect.width / 2;
+  const targetCenterY = targetRect.top + targetRect.height / 2;
+
+  const ghosts = sources.map((source) => {
+    const ghost = source.element.cloneNode(true) as HTMLElement;
+    ghost.classList.add("merge-flight");
+    ghost.style.width = `${source.rect.width}px`;
+    ghost.style.height = `${source.rect.height}px`;
+    ghost.style.transform = `translate3d(${source.rect.left}px, ${source.rect.top}px, 0) scale(1)`;
+    ghost.style.transformOrigin = "top left";
+    return ghost;
+  });
+
+  sources.forEach((source) => {
+    source.element.style.visibility = "hidden";
+  });
+  document.body.append(...ghosts);
+
+  try {
+    const flights = ghosts.map((ghost, index) => {
+      const sourceRect = sources[index].rect;
+      const sourceCenterX = sourceRect.left + sourceRect.width / 2;
+      const sourceCenterY = sourceRect.top + sourceRect.height / 2;
+      const sourceScale = Math.max(0.12, Math.min(0.24, (targetRect.width / sourceRect.width) * 0.22));
+      const transformAt = (progress: number, scale: number) => {
+        const centerX = sourceCenterX + (targetCenterX - sourceCenterX) * progress;
+        const centerY = sourceCenterY + (targetCenterY - sourceCenterY) * progress;
+        const x = centerX - (sourceRect.width * scale) / 2;
+        const y = centerY - (sourceRect.height * scale) / 2;
+        return `translate3d(${x}px, ${y}px, 0) scale(${scale})`;
+      };
+
+      return ghost.animate(
+        [
+          {
+            offset: 0,
+            opacity: 1,
+            transform: transformAt(0, 1)
+          },
+          {
+            offset: 0.28,
+            opacity: 0.96,
+            transform: transformAt(0.34, 0.78)
+          },
+          {
+            offset: 0.64,
+            opacity: 0.82,
+            transform: transformAt(0.78, 0.4)
+          },
+          {
+            offset: 0.9,
+            opacity: 0.36,
+            transform: transformAt(1, sourceScale)
+          },
+          {
+            offset: 1,
+            opacity: 0,
+            transform: transformAt(1, sourceScale * 0.58)
+          }
+        ],
+        {
+          delay: Math.min(index * 12, 48),
+          duration: 260,
+          easing: "cubic-bezier(.2,.86,.16,1)",
+          fill: "forwards"
+        }
+      );
+    });
+
+    targetElement.style.transformOrigin = "center";
+    const targetPulse = targetElement.animate(
+      [
+        {
+          offset: 0,
+          transform: baseTargetTransform
+        },
+        {
+          offset: 0.42,
+          transform: `${baseTargetTransform} scale(1.045)`
+        },
+        {
+          offset: 1,
+          transform: baseTargetTransform
+        }
+      ],
+      {
+        duration: 260 + Math.min((sources.length - 1) * 12, 48),
+        easing: "cubic-bezier(.16,.94,.18,1)"
+      }
+    );
+
+    await Promise.allSettled([...flights.map((flight) => flight.finished), targetPulse.finished]);
+  } finally {
+    targetElement.style.transform = originalTargetTransform;
+    targetElement.style.transformOrigin = originalTargetTransformOrigin;
+    if (options.restoreSources === true) {
+      sources.forEach((source, index) => {
+        source.element.style.visibility = originalSourceVisibilities[index];
+      });
+    }
+    ghosts.forEach((ghost) => ghost.remove());
+  }
+}
+
 export function playFolderBirth(folderElement: HTMLElement, originRect: DOMRect) {
   const targetRect = folderElement.getBoundingClientRect();
   if (!originRect.width || !originRect.height || !targetRect.width || !targetRect.height) {

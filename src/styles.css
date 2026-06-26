@@ -157,6 +157,10 @@ input {
   animation: merge-target-breathe 860ms cubic-bezier(.2,.82,.2,1) infinite alternate;
 }
 
+.desktop-tile.is-trash-target::before {
+  background: linear-gradient(180deg, rgba(116, 226, 164, 0.3), rgba(82, 188, 128, 0.14));
+}
+
 .desktop-tile.is-merge-target .icon-shell {
   transform: translate3d(var(--merge-pull-x, 0px), var(--merge-pull-y, 0px), 0) scale(.9);
   filter: drop-shadow(0 12px 24px rgba(0, 0, 0, 0.28));

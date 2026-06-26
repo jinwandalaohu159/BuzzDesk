@@ -1,7 +1,12 @@
 import { captureRects, playFlip } from "../animation/flip";
 import { dragAutoScrollDelta, dragFrameTransform, toTransformStyle } from "../animation/drag";
 import { playFolderClose, playFolderOpen } from "../animation/folderPanel";
-import { playFolderBirth, playMergeGroupIntoTarget, playMergeIntoTarget } from "../animation/merge";
+import {
+  playFolderBirth,
+  playMergeGroupIntoTarget,
+  playMergeIntoTarget,
+  playTrashGroupIntoTarget
+} from "../animation/merge";
 import {
   desktopContextMenuPool,
   desktopContextMenuSettingsItems,
@@ -85,12 +90,15 @@ const defaultFolderName = "\u6587\u4ef6\u5939";
 const folderPagerHeight = 30;
 const dragStartDistancePx = 7;
 const mergeIntentDelayMs = 400;
+const trashIntentDelayMs = 30;
 
 // Owns desktop interaction orchestration; visual rendering, layout math, state
 // mutation, and platform calls stay in their own modules.
 type DragSource =
   | { type: "desktop"; nodeId: string }
   | { type: "folder"; folderId: string; childId: string };
+
+type DragTargetIntent = "merge" | "trash";
 
 interface ActiveDrag {
   source: DragSource;
@@ -110,10 +118,12 @@ interface ActiveDrag {
   started: boolean;
   frame: number | null;
   targetId: string | null;
+  targetIntent: DragTargetIntent | null;
   targetRect: DOMRect | null;
   targetHitRect: Rect | null;
   targetElement: HTMLElement | null;
   candidateTargetId: string | null;
+  candidateTargetIntent: DragTargetIntent | null;
   candidateTargetRect: DOMRect | null;
   candidateTargetHitRect: Rect | null;
   mergeIntentTimer: number | null;
@@ -137,6 +147,7 @@ interface DragGroupItem {
 
 interface DragTargetSnapshot {
   id: string;
+  intent: DragTargetIntent;
   rect: DOMRect;
   hitRect: Rect;
 }
@@ -1584,10 +1595,12 @@ export class DesktopApp {
       started: false,
       frame: null,
       targetId: null,
+      targetIntent: null,
       targetRect: null,
       targetHitRect: null,
       targetElement: null,
       candidateTargetId: null,
+      candidateTargetIntent: null,
       candidateTargetRect: null,
       candidateTargetHitRect: null,
       mergeIntentTimer: null,
@@ -1691,7 +1704,11 @@ export class DesktopApp {
         window.setTimeout(() => {
           this.suppressNextClick = false;
         }, 0);
-        void this.commitMerge(drag.targetId);
+        if (drag.targetIntent === "trash") {
+          void this.commitTrash(drag.targetId);
+        } else {
+          void this.commitMerge(drag.targetId);
+        }
         return;
       }
 
@@ -2241,6 +2258,7 @@ export class DesktopApp {
     }
 
     if (drag.targetId === hit.id) {
+      drag.targetIntent = hit.intent;
       drag.targetRect = hit.rect;
       drag.targetHitRect = hit.hitRect;
       return;
@@ -2252,6 +2270,7 @@ export class DesktopApp {
 
   private setMergeCandidate(drag: ActiveDrag, candidate: DragTargetSnapshot) {
     if (drag.candidateTargetId === candidate.id) {
+      drag.candidateTargetIntent = candidate.intent;
       drag.candidateTargetRect = candidate.rect;
       drag.candidateTargetHitRect = candidate.hitRect;
       return;
@@ -2259,6 +2278,7 @@ export class DesktopApp {
 
     this.clearMergeCandidate(drag);
     drag.candidateTargetId = candidate.id;
+    drag.candidateTargetIntent = candidate.intent;
     drag.candidateTargetRect = candidate.rect;
     drag.candidateTargetHitRect = candidate.hitRect;
     drag.mergeIntentTimer = window.setTimeout(() => {
@@ -2267,6 +2287,7 @@ export class DesktopApp {
         active !== drag ||
         active.committing ||
         active.candidateTargetId !== candidate.id ||
+        active.candidateTargetIntent !== candidate.intent ||
         !active.candidateTargetRect ||
         !active.candidateTargetHitRect
       ) {
@@ -2280,10 +2301,11 @@ export class DesktopApp {
 
       const targetRect = active.candidateTargetRect;
       const targetHitRect = active.candidateTargetHitRect;
+      const targetIntent = active.candidateTargetIntent ?? "merge";
       this.clearMergeCandidate(active);
-      this.setMergeTarget(candidate.id, targetRect, targetHitRect);
+      this.setMergeTarget(candidate.id, targetRect, targetHitRect, targetIntent);
       this.scheduleDragFrame();
-    }, mergeIntentDelayMs);
+    }, candidate.intent === "trash" ? trashIntentDelayMs : mergeIntentDelayMs);
   }
 
   private clearMergeCandidate(drag: ActiveDrag | null = this.drag) {
@@ -2296,6 +2318,7 @@ export class DesktopApp {
       drag.mergeIntentTimer = null;
     }
     drag.candidateTargetId = null;
+    drag.candidateTargetIntent = null;
     drag.candidateTargetRect = null;
     drag.candidateTargetHitRect = null;
   }
@@ -2303,24 +2326,18 @@ export class DesktopApp {
   private captureMergeTargets(drag: ActiveDrag): DragTargetSnapshot[] {
     const sourceIds = this.desktopDragSourceIds(drag);
     const nodes = this.store.getNodes();
-    const source =
-      drag.source.type === "desktop"
-        ? sourceIds.map((id) => this.findNode(id))
-        : [this.findFolderChild(drag.source.folderId, drag.source.childId)];
-    if (source.some((node) => !node || node.type === "folder")) {
+    const sourceItems = this.dragSourceItems(drag);
+    if (!sourceItems) {
       return [];
     }
+    const canTrashSource = sourceItems.length > 0 && sourceItems.every((item) => Boolean(item.path));
 
     const excludedIds = new Set(sourceIds);
     if (drag.source.type === "folder") {
       excludedIds.add(drag.source.folderId);
     }
 
-    const targetIds = new Set(
-      nodes
-        .filter((node) => !excludedIds.has(node.id) && (node.type === "item" || node.type === "folder"))
-        .map((node) => node.id)
-    );
+    const nodeById = new Map(nodes.map((node) => [node.id, node]));
     const snapshots: DragTargetSnapshot[] = [];
     this.grid.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
       const id = element.dataset.nodeId;
@@ -2328,13 +2345,24 @@ export class DesktopApp {
         return;
       }
 
-      if (!targetIds.has(id)) {
+      const node = nodeById.get(id);
+      if (!node || excludedIds.has(id)) {
+        return;
+      }
+
+      const systemIconId = desktopSystemIconIdFromNodeId(node.id);
+      const intent: DragTargetIntent | null =
+        systemIconId === "recycleBin"
+          ? (canTrashSource ? "trash" : null)
+          : (node.type === "item" || node.type === "folder" ? "merge" : null);
+      if (!intent) {
         return;
       }
 
       const rect = element.getBoundingClientRect();
       snapshots.push({
         id,
+        intent,
         rect,
         hitRect: mergeHitRectForElement(element, rect)
       });
@@ -2351,6 +2379,25 @@ export class DesktopApp {
     return this.isDesktopGroupDrag(drag)
       ? drag.groupItems.map((item) => item.id)
       : [drag.source.nodeId];
+  }
+
+  private dragSourceItems(drag: ActiveDrag): AppNode[] | null {
+    if (drag.source.type === "folder") {
+      const child = this.findFolderChild(drag.source.folderId, drag.source.childId);
+      return child ? [child] : null;
+    }
+
+    const nodes = this.desktopDragSourceIds(drag).map((id) => this.findNode(id));
+    if (nodes.length === 0 || nodes.some((node) => !node || node.type !== "item")) {
+      return null;
+    }
+
+    return nodes as AppNode[];
+  }
+
+  private trashableDragSourceItems(drag: ActiveDrag) {
+    const items = this.dragSourceItems(drag);
+    return items && items.every((item) => Boolean(item.path)) ? items : [];
   }
 
   private hitTestMergeTarget(x: number, y: number, snapshots: DragTargetSnapshot[]) {
@@ -2378,7 +2425,8 @@ export class DesktopApp {
   private setMergeTarget(
     targetId: string | null,
     targetRect: DOMRect | null = null,
-    targetHitRect: Rect | null = null
+    targetHitRect: Rect | null = null,
+    targetIntent: DragTargetIntent = "merge"
   ) {
     const drag = this.drag;
     if (!drag) {
@@ -2390,6 +2438,7 @@ export class DesktopApp {
     }
 
     if (drag.targetId === targetId) {
+      drag.targetIntent = targetId ? targetIntent : null;
       if (targetRect) {
         drag.targetRect = targetRect;
       }
@@ -2398,6 +2447,7 @@ export class DesktopApp {
 
     this.clearTargetStyles();
     drag.targetId = targetId;
+    drag.targetIntent = null;
     drag.targetRect = null;
     drag.targetHitRect = null;
     drag.targetElement = null;
@@ -2408,11 +2458,13 @@ export class DesktopApp {
 
     const target = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(targetId)}"]`);
     target?.classList.add("is-merge-target");
+    target?.classList.toggle("is-trash-target", targetIntent === "trash");
     drag.lastPullX = 0;
     drag.lastPullY = 0;
     target?.style.setProperty("--merge-pull-x", "0px");
     target?.style.setProperty("--merge-pull-y", "0px");
     const resolvedTargetRect = targetRect ?? target?.getBoundingClientRect() ?? null;
+    drag.targetIntent = targetIntent;
     drag.targetRect = resolvedTargetRect;
     drag.targetHitRect = targetHitRect ?? (target && resolvedTargetRect ? mergeHitRectForElement(target, resolvedTargetRect) : null);
     drag.targetElement = target ?? null;
@@ -2449,6 +2501,101 @@ export class DesktopApp {
 
     item.lastTransformStyle = transform;
     item.element.style.transform = transform;
+  }
+
+  private async commitTrash(targetId: string) {
+    const drag = this.drag;
+    if (!drag || drag.committing) {
+      return;
+    }
+
+    const trashItems = this.trashableDragSourceItems(drag);
+    if (trashItems.length === 0) {
+      this.setMergeTarget(null);
+      return;
+    }
+
+    const targetElement = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(targetId)}"]`);
+
+    drag.committing = true;
+    this.clearMergeCandidate(drag);
+    if (drag.frame !== null) {
+      cancelAnimationFrame(drag.frame);
+      drag.frame = null;
+    }
+    window.removeEventListener("pointermove", this.onPointerMove);
+    window.removeEventListener("pointerup", this.onPointerUp);
+    window.removeEventListener("pointercancel", this.onPointerCancel);
+    window.removeEventListener("blur", this.onWindowBlur);
+
+    const trashSources = this.isDesktopGroupDrag(drag)
+      ? drag.groupItems.map((item) => item.element)
+      : [drag.element];
+    const trashAnimation = targetElement
+      ? playTrashGroupIntoTarget(trashSources, targetElement).catch((error) => {
+          console.warn("Unable to play trash animation", error);
+        })
+      : Promise.resolve();
+    if (targetElement) {
+      this.clearMergeTargetElement(targetElement);
+    }
+
+    const deleteResults = Promise.all(trashItems.map(async (item) => {
+      try {
+        await deleteDesktopItem(item);
+        return true;
+      } catch (error) {
+        console.warn("Unable to move item to recycle bin", item.name, error);
+        return false;
+      }
+    }));
+
+    const [, results] = await Promise.all([trashAnimation, deleteResults]);
+    const deletedItems = trashItems.filter((_, index) => results[index]);
+    if (deletedItems.length > 0) {
+      await this.waitForDeletedItemsToLeaveScan(deletedItems);
+    }
+
+    this.clearDragVisualState(drag);
+    if (drag.floating) {
+      drag.element.remove();
+    }
+
+    this.drag = null;
+    this.clearTargetStyles();
+
+    if (deletedItems.length === 0) {
+      this.renderWithFlip();
+      return;
+    }
+
+    try {
+      await this.refreshDesktopItems();
+    } catch (error) {
+      console.warn("Unable to refresh desktop after recycle bin drop", error);
+      this.renderWithFlip();
+    }
+  }
+
+  private async waitForDeletedItemsToLeaveScan(items: AppNode[], timeoutMs = 1000) {
+    const deletedKeys = desktopItemIdentityKeys(items);
+    const deadline = performance.now() + timeoutMs;
+    let delayMs = 35;
+
+    while (true) {
+      const scanned = await scanDesktopItems({ includeIcons: false });
+      if (!scanned.some((item) => desktopItemMatchesIdentityKeys(item, deletedKeys))) {
+        return;
+      }
+
+      const remainingMs = deadline - performance.now();
+      if (remainingMs <= 0) {
+        return;
+      }
+
+      await wait(Math.min(delayMs, remainingMs));
+      delayMs = Math.min(Math.round(delayMs * 1.6), 180);
+    }
   }
 
   private async commitMerge(targetId: string) {
@@ -2596,6 +2743,7 @@ export class DesktopApp {
 
   private clearMergeTargetElement(node: HTMLElement) {
     node.classList.remove("is-merge-target");
+    node.classList.remove("is-trash-target");
     node.style.removeProperty("--merge-pull-x");
     node.style.removeProperty("--merge-pull-y");
   }
@@ -4882,6 +5030,42 @@ function desktopItemsSignature(items: AppNode[]) {
     ].join("\u001f"))
     .sort()
     .join("\u001e");
+}
+
+function desktopItemIdentityKeys(items: AppNode[]) {
+  const keys = new Set<string>();
+  items.forEach((item) => addDesktopItemIdentityKeys(keys, item));
+  return keys;
+}
+
+function desktopItemMatchesIdentityKeys(item: AppNode, keys: Set<string>) {
+  if (keys.has(`id:${item.id}`)) {
+    return true;
+  }
+
+  return desktopItemPathKeys(item).some((key) => keys.has(key));
+}
+
+function addDesktopItemIdentityKeys(keys: Set<string>, item: AppNode) {
+  keys.add(`id:${item.id}`);
+  desktopItemPathKeys(item).forEach((key) => keys.add(key));
+}
+
+function desktopItemPathKeys(item: AppNode) {
+  return [item.path, item.launchId]
+    .filter((value): value is string => Boolean(value))
+    .map((value) => `path:${normalizeDesktopItemPathKey(value)}`);
+}
+
+function normalizeDesktopItemPathKey(value: string) {
+  let path = value.trim();
+  if (path.startsWith("\\\\?\\UNC\\")) {
+    path = `\\\\${path.slice("\\\\?\\UNC\\".length)}`;
+  } else if (path.startsWith("\\\\?\\")) {
+    path = path.slice("\\\\?\\".length);
+  }
+
+  return path.replace(/\//g, "\\").replace(/\\+$/g, "").toLocaleLowerCase();
 }
 
 function isNavigationKey(key: string) {
