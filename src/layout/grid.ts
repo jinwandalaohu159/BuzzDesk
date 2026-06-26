@@ -3,7 +3,7 @@ import {
   desktopTileMetrics,
   folderRatioMax,
   folderRatioMin,
-  shouldIsolateDesktopNode
+  normalizeFolderAppearance
 } from "../settings/desktopSettings";
 import { createFlowGrid, layoutDesktopFlow, spanSize, tileSpan } from "./flow";
 import type { DesktopNode, DesktopPosition, DesktopSettings, FolderAppearanceSettings, LayoutSlot } from "../types";
@@ -150,10 +150,14 @@ function layoutDesktopNodes(
     viewportWidth,
     base,
     (node) => desktopNodeTileMetrics(settings, node),
-    (node) => shouldIsolateDesktopNode(settings, node),
+    isCompactPlacementNode,
     viewportOffsetX,
     viewportOffsetY
   );
+}
+
+function isCompactPlacementNode(node: DesktopNode) {
+  return node.type === "folder" && normalizeFolderAppearance(node.appearance).compactPlacement;
 }
 
 function computeFreeDesktopLayout(
@@ -181,6 +185,7 @@ function computeFreeDesktopLayout(
   for (const node of nodes) {
     const tile = desktopNodeTileMetrics(settings, node);
     const fallback = fallbackSlots.get(node.id);
+    const compactPlacement = isCompactPlacementNode(node);
     if (!node.position) {
       unpositioned.push({ node, tile, fallback: fallback ?? null });
       continue;
@@ -204,7 +209,8 @@ function computeFreeDesktopLayout(
           viewportHeight,
           settings,
           viewportOffsetX,
-          viewportOffsetY
+          viewportOffsetY,
+          compactPlacement
         )
       : preferred;
     slots.set(node.id, slot);
@@ -223,7 +229,8 @@ function computeFreeDesktopLayout(
       viewportHeight,
       settings,
       viewportOffsetX,
-      viewportOffsetY
+      viewportOffsetY,
+      isCompactPlacementNode(entry.node)
     );
     slots.set(entry.node.id, slot);
     occupied.push(slot);
@@ -344,7 +351,8 @@ function findFreeLayoutSlot(
   viewportHeight: number,
   settings: DesktopSettings,
   viewportOffsetX: number,
-  viewportOffsetY: number
+  viewportOffsetY: number,
+  compactPlacement = false
 ): LayoutSlot {
   const base = desktopTileMetrics(settings);
   const maxAvailableX = Math.max(0, viewportWidth - tile.width);
@@ -364,11 +372,12 @@ function findFreeLayoutSlot(
     tile.height,
     viewportWidth,
     viewportHeight,
-    settings
+    settings,
+    compactPlacement
   );
   const candidates = uniqueLayoutCandidates([
     { x: viewportOffsetX + snapped.x, y: viewportOffsetY + snapped.y },
-    ...freeGridCandidates(tile, viewportWidth, viewportHeight, settings, viewportOffsetX, viewportOffsetY)
+    ...freeGridCandidates(tile, viewportWidth, viewportHeight, settings, viewportOffsetX, viewportOffsetY, compactPlacement)
   ]);
 
   for (const candidate of candidates) {
@@ -400,10 +409,11 @@ function freeGridCandidates(
   viewportHeight: number,
   settings: DesktopSettings,
   viewportOffsetX: number,
-  viewportOffsetY: number
+  viewportOffsetY: number,
+  compactPlacement = false
 ) {
   const candidates: Array<{ x: number; y: number }> = [];
-  const { base, grid, xOffset, maxColumn } = freeGridPlacement(tile.width, viewportWidth, settings);
+  const { base, grid, xOffset, maxColumn } = freeGridPlacement(tile.width, viewportWidth, settings, compactPlacement);
   const maxAvailableY = Math.max(0, viewportHeight - tile.height);
   const maxLocalY = Math.max(Math.min(base.paddingY, maxAvailableY), maxAvailableY - base.paddingY);
   const maxRow = Math.max(0, Math.ceil((maxLocalY - grid.top) / grid.rowPitch));

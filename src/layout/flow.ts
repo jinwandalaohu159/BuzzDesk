@@ -33,11 +33,23 @@ export function layoutDesktopFlow(
   viewportWidth: number,
   base: FlowBaseMetrics,
   tileForNode: (node: DesktopNode) => FlowTileMetrics,
-  _isolateNode: (node: DesktopNode) => boolean,
+  compactPlacementForNode: (node: DesktopNode) => boolean,
   viewportOffsetX = 0,
   viewportOffsetY = 0
 ): FlowLayoutResult {
   const grid = createFlowGrid(viewportWidth, base, viewportOffsetX, viewportOffsetY);
+  if (nodes.some(compactPlacementForNode)) {
+    return layoutDesktopFlowRows(
+      nodes,
+      base,
+      grid,
+      tileForNode,
+      compactPlacementForNode,
+      viewportOffsetX,
+      viewportOffsetY
+    );
+  }
+
   const slots = new Map<string, LayoutSlot>();
   const occupied: boolean[][] = [];
   let right = grid.left;
@@ -62,6 +74,67 @@ export function layoutDesktopFlow(
       height: tile.height
     });
 
+    right = Math.max(right, x + tile.width);
+    bottom = Math.max(bottom, y + tile.height);
+  });
+
+  return {
+    slots,
+    contentWidth: right + grid.effectivePaddingX + viewportOffsetX,
+    contentHeight: bottom + base.paddingY + viewportOffsetY
+  };
+}
+
+function layoutDesktopFlowRows(
+  nodes: DesktopNode[],
+  base: FlowBaseMetrics,
+  grid: FlowGrid,
+  tileForNode: (node: DesktopNode) => FlowTileMetrics,
+  compactPlacementForNode: (node: DesktopNode) => boolean,
+  viewportOffsetX: number,
+  viewportOffsetY: number
+): FlowLayoutResult {
+  const slots = new Map<string, LayoutSlot>();
+  const contentRight = grid.left + (grid.columns - 1) * grid.columnPitch + base.width;
+  let cursorX = grid.left;
+  let cursorY = grid.top;
+  let rowHeight = 0;
+  let right = grid.left;
+  let bottom = grid.top;
+
+  nodes.forEach((node) => {
+    const tile = tileForNode(node);
+    const compactPlacement = compactPlacementForNode(node);
+    const reservedWidth = compactPlacement
+      ? tile.width
+      : spanSize(
+          base.width,
+          grid.effectiveGapX,
+          tileSpan(tile.width, base.width, grid.effectiveGapX, grid.columns)
+        );
+
+    if (cursorX > grid.left && cursorX + reservedWidth > contentRight + 0.5) {
+      cursorX = grid.left;
+      cursorY += rowHeight + Math.max(0, base.gapY);
+      rowHeight = 0;
+    }
+
+    const xOffset = compactPlacement
+      ? 0
+      : Math.max(0, Math.round((reservedWidth - tile.width) / 2));
+    const x = cursorX + xOffset;
+    const y = cursorY;
+
+    slots.set(node.id, {
+      id: node.id,
+      x,
+      y,
+      width: tile.width,
+      height: tile.height
+    });
+
+    cursorX += reservedWidth + grid.effectiveGapX;
+    rowHeight = Math.max(rowHeight, tile.height);
     right = Math.max(right, x + tile.width);
     bottom = Math.max(bottom, y + tile.height);
   });
