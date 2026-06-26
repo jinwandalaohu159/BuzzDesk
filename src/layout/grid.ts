@@ -5,8 +5,8 @@ import {
   folderRatioMin,
   shouldIsolateDesktopNode
 } from "../settings/desktopSettings";
-import { layoutDesktopFlow } from "./flow";
-import type { DesktopNode, DesktopSettings, FolderAppearanceSettings, LayoutSlot } from "../types";
+import { createFlowGrid, layoutDesktopFlow, spanSize, tileSpan } from "./flow";
+import type { DesktopNode, DesktopPosition, DesktopSettings, FolderAppearanceSettings, LayoutSlot } from "../types";
 
 export const folderGrid = {
   itemWidth: 92,
@@ -240,7 +240,7 @@ function computeFreeDesktopLayout(
 function clampFreeLayoutPosition(
   x: number,
   y: number,
-  tile: ReturnType<typeof desktopNodeTileMetrics>,
+  tile: Pick<LayoutSlot, "width" | "height">,
   viewportWidth: number,
   viewportHeight: number,
   settings: DesktopSettings
@@ -257,6 +257,90 @@ function clampFreeLayoutPosition(
     x: clamp(Math.round(x), minX, maxX),
     y: clamp(Math.round(y), minY, maxY)
   };
+}
+
+export function snapFreeDesktopLayoutPosition(
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  settings: DesktopSettings
+): DesktopPosition {
+  const base = desktopTileMetrics(settings);
+  const grid = createFlowGrid(viewportWidth, base, 0, 0);
+  const columnSpan = tileSpan(width, base.width, grid.effectiveGapX, grid.columns);
+  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
+  const xOffset = Math.max(0, Math.round((reservedWidth - width) / 2));
+  const maxColumn = Math.max(0, grid.columns - columnSpan);
+  const column = clamp(Math.round((x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
+  const row = Math.max(0, Math.round((y - grid.top) / grid.rowPitch));
+
+  return clampFreeLayoutPosition(
+    grid.left + column * grid.columnPitch + xOffset,
+    grid.top + row * grid.rowPitch,
+    { width, height },
+    viewportWidth,
+    viewportHeight,
+    settings
+  );
+}
+
+export function nearbyFreeDesktopLayoutPositions(
+  preferred: DesktopPosition,
+  width: number,
+  height: number,
+  viewportWidth: number,
+  viewportHeight: number,
+  settings: DesktopSettings
+) {
+  const base = desktopTileMetrics(settings);
+  const grid = createFlowGrid(viewportWidth, base, 0, 0);
+  const columnSpan = tileSpan(width, base.width, grid.effectiveGapX, grid.columns);
+  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
+  const xOffset = Math.max(0, Math.round((reservedWidth - width) / 2));
+  const maxColumn = Math.max(0, grid.columns - columnSpan);
+  const startColumn = clamp(Math.round((preferred.x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
+  const startRow = Math.max(0, Math.round((preferred.y - grid.top) / grid.rowPitch));
+  const candidates: DesktopPosition[] = [preferred];
+  const seen = new Set([`${preferred.x}:${preferred.y}`]);
+
+  for (let radius = 1; radius <= 48; radius += 1) {
+    for (let rowOffset = -radius; rowOffset <= radius; rowOffset += 1) {
+      for (let columnOffset = -radius; columnOffset <= radius; columnOffset += 1) {
+        if (Math.abs(rowOffset) !== radius && Math.abs(columnOffset) !== radius) {
+          continue;
+        }
+
+        const column = startColumn + columnOffset;
+        const row = startRow + rowOffset;
+        if (column < 0 || column > maxColumn || row < 0) {
+          continue;
+        }
+
+        const candidate = clampFreeLayoutPosition(
+          grid.left + column * grid.columnPitch + xOffset,
+          grid.top + row * grid.rowPitch,
+          { width, height },
+          viewportWidth,
+          viewportHeight,
+          settings
+        );
+        const key = `${candidate.x}:${candidate.y}`;
+        if (!seen.has(key)) {
+          seen.add(key);
+          candidates.push(candidate);
+        }
+      }
+    }
+  }
+
+  return candidates.sort(
+    (a, b) =>
+      Math.hypot(a.x - preferred.x, a.y - preferred.y) -
+      Math.hypot(b.x - preferred.x, b.y - preferred.y)
+  );
 }
 
 function findFreeLayoutSlot(
@@ -281,9 +365,18 @@ function findFreeLayoutSlot(
     x: clamp(fallback?.x ?? viewportOffsetX + base.paddingX, minX, maxX),
     y: clamp(fallback?.y ?? viewportOffsetY + base.paddingY, minY, maxY)
   };
+  const snapped = snapFreeDesktopLayoutPosition(
+    preferred.x - viewportOffsetX,
+    preferred.y - viewportOffsetY,
+    tile.width,
+    tile.height,
+    viewportWidth,
+    viewportHeight,
+    settings
+  );
   const candidates = uniqueLayoutCandidates([
-    preferred,
-    ...freeGridCandidates(base, tile, viewportWidth, viewportHeight, viewportOffsetX, viewportOffsetY)
+    { x: viewportOffsetX + snapped.x, y: viewportOffsetY + snapped.y },
+    ...freeGridCandidates(tile, viewportWidth, viewportHeight, settings, viewportOffsetX, viewportOffsetY)
   ]);
 
   for (const candidate of candidates) {
@@ -310,30 +403,38 @@ function findFreeLayoutSlot(
 }
 
 function freeGridCandidates(
-  base: ReturnType<typeof desktopTileMetrics>,
   tile: ReturnType<typeof desktopNodeTileMetrics>,
   viewportWidth: number,
   viewportHeight: number,
+  settings: DesktopSettings,
   viewportOffsetX: number,
   viewportOffsetY: number
 ) {
   const candidates: Array<{ x: number; y: number }> = [];
-  const maxAvailableX = Math.max(0, viewportWidth - tile.width);
+  const base = desktopTileMetrics(settings);
+  const grid = createFlowGrid(viewportWidth, base, 0, 0);
+  const columnSpan = tileSpan(tile.width, base.width, grid.effectiveGapX, grid.columns);
+  const reservedWidth = spanSize(base.width, grid.effectiveGapX, columnSpan);
+  const xOffset = Math.max(0, Math.round((reservedWidth - tile.width) / 2));
+  const maxColumn = Math.max(0, grid.columns - columnSpan);
   const maxAvailableY = Math.max(0, viewportHeight - tile.height);
-  const minLocalX = Math.min(base.paddingX, maxAvailableX);
-  const minLocalY = Math.min(base.paddingY, maxAvailableY);
-  const maxLocalX = Math.max(minLocalX, maxAvailableX - base.paddingX);
-  const maxLocalY = Math.max(minLocalY, maxAvailableY - base.paddingY);
-  const startX = viewportOffsetX + minLocalX;
-  const startY = viewportOffsetY + minLocalY;
-  const maxX = viewportOffsetX + maxLocalX;
-  const maxY = viewportOffsetY + maxLocalY;
-  const stepX = Math.max(base.width + base.gapX, Math.ceil(tile.width / 2) + base.gapX);
-  const stepY = Math.max(base.height + base.gapY, Math.ceil(tile.height / 2) + base.gapY);
+  const maxLocalY = Math.max(Math.min(base.paddingY, maxAvailableY), maxAvailableY - base.paddingY);
+  const maxRow = Math.max(0, Math.ceil((maxLocalY - grid.top) / grid.rowPitch));
 
-  for (let y = startY; y <= maxY; y += stepY) {
-    for (let x = startX; x <= maxX; x += stepX) {
-      candidates.push({ x, y });
+  for (let row = 0; row <= maxRow; row += 1) {
+    for (let column = 0; column <= maxColumn; column += 1) {
+      const candidate = clampFreeLayoutPosition(
+        grid.left + column * grid.columnPitch + xOffset,
+        grid.top + row * grid.rowPitch,
+        tile,
+        viewportWidth,
+        viewportHeight,
+        settings
+      );
+      candidates.push({
+        x: viewportOffsetX + candidate.x,
+        y: viewportOffsetY + candidate.y
+      });
     }
   }
 

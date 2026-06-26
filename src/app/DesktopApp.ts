@@ -18,7 +18,13 @@ import {
   toggleContextMenuSeparator,
   updateContextMenuItemPlacement
 } from "./contextMenuModel";
-import { computeDesktopLayout, desktopIndexForPoint, panelSizeFor } from "../layout/grid";
+import {
+  computeDesktopLayout,
+  desktopIndexForPoint,
+  nearbyFreeDesktopLayoutPositions,
+  panelSizeFor,
+  snapFreeDesktopLayoutPosition
+} from "../layout/grid";
 import {
   renderContextMenu,
   renderDesktopNode,
@@ -2060,13 +2066,14 @@ export class DesktopApp {
     height: number,
     viewport = desktopViewport()
   ): DesktopPosition {
-    const step = this.desktopSnapStep();
-    return this.clampedDesktopPosition(
-      Math.round(x / step) * step,
-      Math.round(y / step) * step,
+    return snapFreeDesktopLayoutPosition(
+      x,
+      y,
       width,
       height,
-      viewport
+      viewport.width,
+      viewport.height,
+      this.store.getSettings()
     );
   }
 
@@ -2076,43 +2083,14 @@ export class DesktopApp {
     height: number,
     viewport = desktopViewport()
   ) {
-    const step = this.desktopSnapStep();
-    const candidates: DesktopPosition[] = [preferred];
-    const seen = new Set([`${preferred.x}:${preferred.y}`]);
-
-    for (let radius = 1; radius <= 48; radius += 1) {
-      for (let row = -radius; row <= radius; row += 1) {
-        for (let column = -radius; column <= radius; column += 1) {
-          if (Math.abs(row) !== radius && Math.abs(column) !== radius) {
-            continue;
-          }
-
-          const candidate = this.clampedDesktopPosition(
-            preferred.x + column * step,
-            preferred.y + row * step,
-            width,
-            height,
-            viewport
-          );
-          const key = `${candidate.x}:${candidate.y}`;
-          if (!seen.has(key)) {
-            seen.add(key);
-            candidates.push(candidate);
-          }
-        }
-      }
-    }
-
-    return candidates.sort(
-      (a, b) =>
-        Math.hypot(a.x - preferred.x, a.y - preferred.y) -
-        Math.hypot(b.x - preferred.x, b.y - preferred.y)
+    return nearbyFreeDesktopLayoutPositions(
+      preferred,
+      width,
+      height,
+      viewport.width,
+      viewport.height,
+      this.store.getSettings()
     );
-  }
-
-  private desktopSnapStep() {
-    const metrics = desktopTileMetrics(this.store.getSettings());
-    return Math.max(6, Math.round(Math.min(metrics.width, metrics.height) / 10));
   }
 
   private freeFolderChildPositions(folder: FolderNode) {

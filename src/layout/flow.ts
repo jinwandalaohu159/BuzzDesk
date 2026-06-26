@@ -18,7 +18,7 @@ export interface FlowLayoutResult {
   contentHeight: number;
 }
 
-interface FlowGrid {
+export interface FlowGrid {
   left: number;
   top: number;
   columns: number;
@@ -73,7 +73,7 @@ export function layoutDesktopFlow(
   };
 }
 
-function createFlowGrid(
+export function createFlowGrid(
   viewportWidth: number,
   base: FlowBaseMetrics,
   viewportOffsetX: number,
@@ -100,13 +100,13 @@ function createFlowGrid(
   };
 }
 
-function tileSpan(size: number, baseSize: number, gap: number, maxSpan = Number.POSITIVE_INFINITY) {
+export function tileSpan(size: number, baseSize: number, gap: number, maxSpan = Number.POSITIVE_INFINITY) {
   const pitch = baseSize + Math.max(0, gap);
   const span = pitch > 0 ? Math.ceil((size + Math.max(0, gap)) / pitch) : 1;
   return Math.max(1, Math.min(maxSpan, span));
 }
 
-function spanSize(baseSize: number, gap: number, span: number) {
+export function spanSize(baseSize: number, gap: number, span: number) {
   return span * baseSize + Math.max(0, span - 1) * Math.max(0, gap);
 }
 
