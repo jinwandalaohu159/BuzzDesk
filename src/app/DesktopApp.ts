@@ -2914,12 +2914,7 @@ export class DesktopApp {
     }
 
     if (reset) {
-      this.cancelSettingsPreview();
-      this.settingsPriorityMenuOpen = false;
-      this.settingsSystemIconAddOpen = false;
-      this.store.updateSettings(defaultDesktopSettings);
-      void setAppProcessPriority(defaultDesktopSettings.appPriority);
-      void setStartupEnabled(defaultDesktopSettings.startWithWindows);
+      this.resetCurrentSettingsView();
       return;
     }
 
@@ -3053,8 +3048,7 @@ export class DesktopApp {
 
     if (contextMenuResetButton) {
       this.cancelSettingsPreview();
-      this.store.updateSettings({ contextMenu: resetContextMenuSettings() });
-      void this.refreshContextMenuSettingsPool();
+      this.resetContextMenuCustomization();
       return;
     }
 
@@ -3097,6 +3091,62 @@ export class DesktopApp {
     this.settingsView = "main";
     this.settingsPriorityMenuOpen = false;
     this.renderSettingsLayer();
+  }
+
+  private resetCurrentSettingsView() {
+    this.cancelSettingsPreview();
+    this.settingsPriorityMenuOpen = false;
+    this.settingsSystemIconAddOpen = false;
+
+    if (this.settingsView === "layout") {
+      this.resetLayoutSettings();
+      return;
+    }
+
+    if (this.settingsView === "system") {
+      this.store.updateSettings({ systemIcons: { ...defaultDesktopSettings.systemIcons } });
+      return;
+    }
+
+    if (this.settingsView === "contextMenu") {
+      this.resetContextMenuCustomization();
+      return;
+    }
+
+    this.store.updateSettings(defaultDesktopSettings);
+    void setAppProcessPriority(defaultDesktopSettings.appPriority);
+    void setStartupEnabled(defaultDesktopSettings.startWithWindows);
+  }
+
+  private resetLayoutSettings() {
+    const currentLayoutMode = this.store.getSettings().layoutMode;
+    const previousSuppress = this.suppressStoreRender;
+    this.suppressStoreRender = true;
+
+    try {
+      if (defaultDesktopSettings.layoutMode === "free" && currentLayoutMode !== "free") {
+        this.seedFreeLayoutPositions();
+      }
+      this.store.updateSettings({
+        layoutMode: defaultDesktopSettings.layoutMode,
+        appIconSize: defaultDesktopSettings.appIconSize,
+        desktopGapPx: defaultDesktopSettings.desktopGapPx,
+        desktopPaddingX: defaultDesktopSettings.desktopPaddingX,
+        desktopPaddingY: defaultDesktopSettings.desktopPaddingY,
+        folderCoverSmallPx: defaultDesktopSettings.folderCoverSmallPx,
+        folderCoverMediumPx: defaultDesktopSettings.folderCoverMediumPx,
+        folderCoverLargePx: defaultDesktopSettings.folderCoverLargePx
+      });
+    } finally {
+      this.suppressStoreRender = previousSuppress;
+    }
+
+    this.renderWithFlip();
+  }
+
+  private resetContextMenuCustomization() {
+    this.store.updateSettings({ contextMenu: resetContextMenuSettings() });
+    void this.refreshContextMenuSettingsPool();
   }
 
   private onSettingsInput(event: Event) {
