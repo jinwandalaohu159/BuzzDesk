@@ -1,5 +1,9 @@
 # BuzzDesk
 
+<p align="center">
+  <img src="./icons/像素-蜜蜂-01.png" alt="BuzzDesk icon" width="96" />
+</p>
+
 [中文](./README.md)
 
 BuzzDesk is a Windows desktop icon layer replacement. It keeps your existing wallpaper, hides the native Windows desktop icons, and renders a custom desktop icon system focused on organization, dragging, and virtual folders.
@@ -50,4 +54,3 @@ npm run tauri:build
 ## Status
 
 BuzzDesk currently targets Windows desktop environments. The project is still evolving, with ongoing work focused on desktop organization, drag feel, virtual folders, visual quality, and stability.
-

@@ -1,5 +1,9 @@
 # BuzzDesk
 
+<p align="center">
+  <img src="./icons/像素-蜜蜂-01.png" alt="BuzzDesk icon" width="96" />
+</p>
+
 [English](./README.en.md)
 
 BuzzDesk 是一个 Windows 桌面图标层替代工具。它会在保留原有壁纸的基础上隐藏 Windows 原生桌面图标，并渲染一套更适合整理、拖拽和收纳的自定义桌面图标系统。
@@ -50,4 +54,3 @@ npm run tauri:build
 ## 当前状态
 
 BuzzDesk 目前主要面向 Windows 桌面环境。项目仍在快速迭代中，重点会继续放在桌面整理体验、拖拽手感、虚拟文件夹、美观度和稳定性上。
-
