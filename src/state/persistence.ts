@@ -6,28 +6,20 @@ import type {
   PersistedItemNode,
   PersistedNode
 } from "../types";
+import { saveDesktopState } from "../system/desktopApi";
 
 const storageKey = "desktop-layer-state-v1";
-const settingsStorageKey = "desktop-layer-settings-v1";
 
 export function loadState(): PersistedDesktopState | null {
-  const savedSettings = loadSettingsState();
-
   try {
     const raw = localStorage.getItem(storageKey);
     if (!raw) {
-      return savedSettings ? emptyPersistedState(savedSettings) : null;
+      return null;
     }
 
-    const parsed = JSON.parse(raw) as unknown;
-    const state = toLoadedDesktopState(parsed);
-    if (!state) {
-      return savedSettings ? emptyPersistedState(savedSettings) : null;
-    }
-
-    return savedSettings ? { ...state, settings: savedSettings } : state;
+    return toLoadedDesktopState(JSON.parse(raw) as unknown);
   } catch {
-    return savedSettings ? emptyPersistedState(savedSettings) : null;
+    return null;
   }
 }
 
@@ -35,21 +27,18 @@ export function saveState(nodes: DesktopNode[], settings: DesktopSettings) {
   const state = toPersistedState(nodes, settings);
 
   try {
-    localStorage.setItem(settingsStorageKey, JSON.stringify(settings));
-  } catch (error) {
-    console.warn("Unable to persist desktop settings", error);
-  }
-
-  try {
     localStorage.setItem(storageKey, JSON.stringify(state));
   } catch (error) {
     console.warn("Unable to persist desktop layout", error);
   }
+
+  void saveDesktopState(state);
 }
 
 function toPersistedState(nodes: PersistedNode[] | DesktopNode[], settings: DesktopSettings): PersistedDesktopState {
   return {
     version: 1,
+    updatedAt: Date.now(),
     nodes: nodes.map(toPersistedNode),
     settings
   };
@@ -104,25 +93,9 @@ function toLoadedDesktopState(value: unknown): PersistedDesktopState | null {
     return null;
   }
 
-  return { version: 1, nodes, settings };
-}
+  const updatedAt = Number.isFinite(value.updatedAt) ? Number(value.updatedAt) : undefined;
 
-function loadSettingsState(): Partial<DesktopSettings> | null {
-  try {
-    const raw = localStorage.getItem(settingsStorageKey);
-    if (!raw) {
-      return null;
-    }
-
-    const parsed = JSON.parse(raw) as unknown;
-    return isRecord(parsed) ? (parsed as Partial<DesktopSettings>) : null;
-  } catch {
-    return null;
-  }
-}
-
-function emptyPersistedState(settings: Partial<DesktopSettings>): PersistedDesktopState {
-  return { version: 1, nodes: [], settings };
+  return { version: 1, updatedAt, nodes, settings };
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

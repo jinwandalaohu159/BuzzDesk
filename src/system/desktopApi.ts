@@ -3,6 +3,7 @@ import type {
   AppProcessPriority,
   DesktopDiagnostics,
   DesktopSourceItem,
+  PersistedDesktopState,
   NativeContextMenuItem,
   NativeContextMenuResult
 } from "../types";
@@ -269,6 +270,46 @@ export async function setAppProcessPriority(priority: AppProcessPriority) {
     await invoke("set_app_process_priority", { priority });
   } catch (error) {
     console.warn("Unable to set app process priority", error);
+  }
+}
+
+export async function loadDesktopState(): Promise<PersistedDesktopState | null> {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return null;
+  }
+
+  try {
+    return await invoke<PersistedDesktopState | null>("load_desktop_state");
+  } catch (error) {
+    console.warn("Unable to load native desktop state", error);
+    return null;
+  }
+}
+
+export async function saveDesktopState(state: PersistedDesktopState) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return;
+  }
+
+  try {
+    await invoke("save_desktop_state", { state });
+  } catch (error) {
+    console.warn("Unable to save native desktop state", error);
+  }
+}
+
+export async function logStartupEvent(event: string) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return;
+  }
+
+  try {
+    await invoke("log_startup_event", { event });
+  } catch {
+    // Startup logs are diagnostic only.
   }
 }
 

@@ -1,4 +1,10 @@
 use serde::{Deserialize, Serialize};
+use std::{
+    fs::{self, OpenOptions},
+    io::{ErrorKind, Write},
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 use tauri::{
     image::Image,
     menu::{Menu, MenuItem},
@@ -10,6 +16,8 @@ const TRAY_SETTINGS_ID: &str = "settings";
 const TRAY_SHOW_LAYER_ID: &str = "show_desktop_layer";
 const TRAY_RESTORE_NATIVE_ICONS_ID: &str = "restore_native_desktop_icons";
 const TRAY_QUIT_ID: &str = "quit";
+const DESKTOP_STATE_FILE_NAME: &str = "desktop-state.json";
+const STARTUP_LOG_FILE_NAME: &str = "buzzdesk-startup.log";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -63,6 +71,62 @@ pub struct NativeContextMenuItem {
     pub checked: bool,
     pub separator: bool,
     pub submenu: Vec<NativeContextMenuItem>,
+}
+
+fn desktop_state_path(app: &AppHandle) -> Result<PathBuf, String> {
+    app.path()
+        .app_data_dir()
+        .map(|dir| dir.join(DESKTOP_STATE_FILE_NAME))
+        .map_err(|error| format!("failed to resolve app data directory: {error}"))
+}
+
+fn trace_startup(event: impl AsRef<str>) {
+    let timestamp_ms = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map(|duration| duration.as_millis())
+        .unwrap_or_default();
+    let path = std::env::temp_dir().join(STARTUP_LOG_FILE_NAME);
+
+    if let Ok(mut file) = OpenOptions::new().create(true).append(true).open(path) {
+        let _ = writeln!(
+            file,
+            "{timestamp_ms} pid={} {}",
+            std::process::id(),
+            event.as_ref()
+        );
+    }
+}
+
+#[tauri::command]
+fn load_desktop_state(app: AppHandle) -> Result<Option<serde_json::Value>, String> {
+    let path = desktop_state_path(&app)?;
+    let content = match fs::read_to_string(path) {
+        Ok(content) => content,
+        Err(error) if error.kind() == ErrorKind::NotFound => return Ok(None),
+        Err(error) => return Err(format!("failed to read desktop state: {error}")),
+    };
+
+    serde_json::from_str(&content)
+        .map(Some)
+        .map_err(|error| format!("failed to parse desktop state: {error}"))
+}
+
+#[tauri::command]
+fn save_desktop_state(app: AppHandle, state: serde_json::Value) -> Result<(), String> {
+    let path = desktop_state_path(&app)?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .map_err(|error| format!("failed to create app data directory: {error}"))?;
+    }
+
+    let content = serde_json::to_string(&state)
+        .map_err(|error| format!("failed to serialize desktop state: {error}"))?;
+    fs::write(path, content).map_err(|error| format!("failed to write desktop state: {error}"))
+}
+
+#[tauri::command]
+fn log_startup_event(event: String) {
+    trace_startup(event);
 }
 
 #[tauri::command]
@@ -353,6 +417,7 @@ fn show_virtual_desktop_layer(app: &AppHandle) {
 }
 
 pub fn run() {
+    trace_startup("run:enter");
     #[cfg(windows)]
     {
         let default_hook = std::panic::take_hook();
@@ -364,6 +429,7 @@ pub fn run() {
 
     let app = tauri::Builder::default()
         .setup(|app| {
+            trace_startup("setup:enter");
             #[cfg(windows)]
             {
                 let _ = platform::set_native_desktop_icons_visible(true);
@@ -373,9 +439,13 @@ pub fn run() {
                 eprintln!("failed to create tray icon: {error}");
             }
 
+            trace_startup("setup:done");
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            load_desktop_state,
+            save_desktop_state,
+            log_startup_event,
             scan_desktop_items,
             scan_desktop_items_fast,
             desktop_diagnostics,
@@ -583,7 +653,10 @@ mod platform {
 
 #[cfg(windows)]
 mod platform {
-    use super::{DesktopDiagnostics, DesktopItem, NativeContextMenuItem, NativeContextMenuResult, WindowBounds};
+    use super::{
+        DesktopDiagnostics, DesktopItem, NativeContextMenuItem, NativeContextMenuResult,
+        WindowBounds,
+    };
     use base64::{engine::general_purpose, Engine as _};
     use std::cell::RefCell;
     use std::collections::{BTreeMap, HashMap};
@@ -658,8 +731,8 @@ mod platform {
     use windows::Win32::System::Memory::{GlobalAlloc, GlobalLock, GlobalUnlock, GMEM_MOVEABLE};
     use windows::Win32::System::Ole::CF_HDROP;
     use windows::Win32::System::Threading::{
-        GetCurrentProcess, SetPriorityClass, ABOVE_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS,
-        NORMAL_PRIORITY_CLASS,
+        GetCurrentProcess, GetExitCodeProcess, SetPriorityClass, WaitForSingleObject,
+        ABOVE_NORMAL_PRIORITY_CLASS, HIGH_PRIORITY_CLASS, INFINITE, NORMAL_PRIORITY_CLASS,
     };
     use windows::Win32::UI::Controls::{IImageList, ILD_TRANSPARENT};
     use windows::Win32::UI::Shell::{
@@ -670,9 +743,10 @@ mod platform {
         SHGetPathFromIDListW, SHParseDisplayName, ShellExecuteExW, ShellExecuteW, ShellLink,
         StrRetToBufW, CMF_CANRENAME, CMF_NORMAL, CMINVOKECOMMANDINFO, DROPFILES, FOF_ALLOWUNDO,
         FOF_NOCONFIRMATION, FO_DELETE, GCS_VERBW, HDROP, KF_FLAG_DEFAULT, SEE_MASK_IDLIST,
-        SEE_MASK_INVOKEIDLIST, SHCONTF_FOLDERS, SHCONTF_NONFOLDERS, SHELLEXECUTEINFOW, SHFILEINFOW,
-        SHFILEOPSTRUCTW, SHGDN_FORPARSING, SHGDN_INFOLDER, SHGFI_ICON, SHGFI_LARGEICON, SHGFI_PIDL,
-        SHGFI_SYSICONINDEX, SHIL_EXTRALARGE, SHIL_JUMBO, SLGP_UNCPRIORITY,
+        SEE_MASK_INVOKEIDLIST, SEE_MASK_NOCLOSEPROCESS, SHCONTF_FOLDERS, SHCONTF_NONFOLDERS,
+        SHELLEXECUTEINFOW, SHFILEINFOW, SHFILEOPSTRUCTW, SHGDN_FORPARSING, SHGDN_INFOLDER,
+        SHGFI_ICON, SHGFI_LARGEICON, SHGFI_PIDL, SHGFI_SYSICONINDEX, SHIL_EXTRALARGE, SHIL_JUMBO,
+        SLGP_UNCPRIORITY,
     };
     use windows::Win32::UI::WindowsAndMessaging::{
         CallWindowProcW, CreatePopupMenu, DefWindowProcW, DestroyIcon, DestroyMenu, EnumWindows,
@@ -681,13 +755,12 @@ mod platform {
         PrivateExtractIconsW, SendMessageTimeoutW, SetForegroundWindow, SetParent,
         SetWindowLongPtrW, SetWindowLongW, SetWindowPos, ShowWindow, TrackPopupMenuEx,
         GWLP_WNDPROC, GWL_STYLE, HICON, HMENU, HTCLIENT, ICONINFO, MENUITEMINFOW, MFS_CHECKED,
-        MFS_DISABLED, MFS_GRAYED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE,
-        MIIM_STRING, MIIM_SUBMENU, SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN,
-        SM_XVIRTUALSCREEN, SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE,
-        SWP_SHOWWINDOW, SW_HIDE, SW_SHOW, SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD,
-        TPM_RIGHTBUTTON, WM_DRAWITEM, WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR,
-        WM_NCHITTEST, WNDPROC, WS_CAPTION, WS_CHILD, WS_MAXIMIZEBOX, WS_MINIMIZEBOX,
-        WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
+        MFS_DISABLED, MFS_GRAYED, MFT_SEPARATOR, MIIM_FTYPE, MIIM_ID, MIIM_STATE, MIIM_STRING,
+        MIIM_SUBMENU, SMTO_NORMAL, SM_CXVIRTUALSCREEN, SM_CYVIRTUALSCREEN, SM_XVIRTUALSCREEN,
+        SM_YVIRTUALSCREEN, SWP_FRAMECHANGED, SWP_NOACTIVATE, SWP_SHOWWINDOW, SW_HIDE, SW_SHOW,
+        SW_SHOWNORMAL, TPM_LEFTALIGN, TPM_RETURNCMD, TPM_RIGHTBUTTON, WM_DRAWITEM,
+        WM_INITMENUPOPUP, WM_MEASUREITEM, WM_MENUCHAR, WM_NCHITTEST, WNDPROC, WS_CAPTION, WS_CHILD,
+        WS_MAXIMIZEBOX, WS_MINIMIZEBOX, WS_POPUP, WS_SYSMENU, WS_THICKFRAME, WS_VISIBLE,
     };
 
     pub fn scan_desktop_items() -> Result<Vec<DesktopItem>, String> {
@@ -1207,13 +1280,7 @@ mod platform {
             .CreateViewObject(owner)
             .map_err(|error| format!("CreateViewObject(IContextMenu) failed: {error}"))?;
         let menu = CreatePopupMenu().map_err(|error| format!("CreatePopupMenu failed: {error}"))?;
-        let query = context_menu.QueryContextMenu(
-            menu,
-            0,
-            1,
-            0x7fff,
-            CMF_NORMAL | CMF_CANRENAME,
-        );
+        let query = context_menu.QueryContextMenu(menu, 0, 1, 0x7fff, CMF_NORMAL | CMF_CANRENAME);
         if query.is_err() {
             let _ = DestroyMenu(menu);
             return Err(format!("QueryContextMenu failed: {query:?}"));
@@ -1297,8 +1364,8 @@ mod platform {
             }
 
             let separator = (info.fType & MFT_SEPARATOR) == MFT_SEPARATOR;
-            let disabled =
-                (info.fState & MFS_DISABLED) == MFS_DISABLED || (info.fState & MFS_GRAYED) == MFS_GRAYED;
+            let disabled = (info.fState & MFS_DISABLED) == MFS_DISABLED
+                || (info.fState & MFS_GRAYED) == MFS_GRAYED;
             let checked = (info.fState & MFS_CHECKED) == MFS_CHECKED;
             let label = native_menu_item_label(menu, index as u32);
             let command_id = if info.wID >= 1 && info.wID <= 0x7fff {
@@ -1306,7 +1373,8 @@ mod platform {
             } else {
                 None
             };
-            let verb = command_id.and_then(|id| context_menu_command_verb(context_menu, id as usize));
+            let verb =
+                command_id.and_then(|id| context_menu_command_verb(context_menu, id as usize));
             let key = native_context_menu_item_key(verb.as_deref(), &label, parent_path, index);
             let mut child_path = parent_path.to_vec();
             child_path.push(if label.is_empty() {
@@ -1408,7 +1476,10 @@ mod platform {
             return String::new();
         }
 
-        let len = buffer.iter().position(|value| *value == 0).unwrap_or(buffer.len());
+        let len = buffer
+            .iter()
+            .position(|value| *value == 0)
+            .unwrap_or(buffer.len());
         clean_native_menu_label(&String::from_utf16_lossy(&buffer[..len]))
     }
 
@@ -1494,7 +1565,10 @@ mod platform {
             collapsed.push(item);
         }
 
-        while collapsed.last().is_some_and(|item: &NativeContextMenuItem| item.separator) {
+        while collapsed
+            .last()
+            .is_some_and(|item: &NativeContextMenuItem| item.separator)
+        {
             collapsed.pop();
         }
 
@@ -1791,12 +1865,14 @@ mod platform {
     }
 
     pub fn get_startup_enabled() -> bool {
-        startup_task_exists() || startup_run_key_exists()
+        startup_task_exists()
     }
 
     pub fn set_startup_enabled(enabled: bool) -> Result<(), String> {
         if enabled {
-            set_startup_run_key().or_else(|_| create_startup_task())
+            create_startup_task()?;
+            let _ = delete_startup_run_key();
+            Ok(())
         } else {
             delete_startup_entries()
         }
@@ -1817,19 +1893,18 @@ mod platform {
         write_utf16_xml(&xml_path, &startup_task_xml(&exe_path))
             .map_err(|error| format!("failed to write startup task XML: {error}"))?;
 
-        let status = schtasks()
-            .args(["/Create", "/TN", STARTUP_TASK_NAME, "/XML"])
-            .arg(&xml_path)
-            .arg("/F")
-            .status()
-            .map_err(|error| format!("failed to create startup task: {error}"))?;
+        let xml_path_text = xml_path.to_string_lossy().to_string();
+        let result = schtasks_ok_allow_elevation(&[
+            "/Create",
+            "/TN",
+            STARTUP_TASK_NAME,
+            "/XML",
+            &xml_path_text,
+            "/F",
+        ]);
 
         let _ = fs::remove_file(xml_path);
-        if status.success() {
-            Ok(())
-        } else {
-            Err("failed to create startup task".to_string())
-        }
+        result
     }
 
     fn delete_startup_entries() -> Result<(), String> {
@@ -1849,37 +1924,45 @@ mod platform {
             return Ok(());
         }
 
-        let status = schtasks()
-            .args(["/Delete", "/TN", STARTUP_TASK_NAME, "/F"])
-            .status()
-            .map_err(|error| format!("failed to delete startup task: {error}"))?;
-
-        if status.success() {
-            Ok(())
-        } else {
-            Err("failed to delete startup task".to_string())
-        }
+        schtasks_ok_allow_elevation(&["/Delete", "/TN", STARTUP_TASK_NAME, "/F"])
     }
 
     fn startup_task_xml(exe_path: &Path) -> String {
-        let command = xml_escape(exe_path.to_string_lossy().as_ref());
+        let command = xml_escape(&format!("\"{}\"", exe_path.to_string_lossy()));
         format!(
             r#"<?xml version="1.0" encoding="UTF-16"?>
-<Task version="1.4" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
+<Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
     <LogonTrigger>
       <Enabled>true</Enabled>
     </LogonTrigger>
   </Triggers>
+  <Principals>
+    <Principal id="Author">
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
+  </Principals>
   <Settings>
     <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
     <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
     <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-    <StartWhenAvailable>true</StartWhenAvailable>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
     <Enabled>true</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
     <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>0</Priority>
   </Settings>
-  <Actions>
+  <Actions Context="Author">
     <Exec>
       <Command>{command}</Command>
     </Exec>
@@ -1907,39 +1990,19 @@ mod platform {
             .unwrap_or(false)
     }
 
-    fn set_startup_run_key() -> Result<(), String> {
-        let exe_path = env::current_exe()
-            .map_err(|error| format!("failed to resolve current executable: {error}"))?;
-        let value = format!("\"{}\"", exe_path.to_string_lossy());
-        let status = reg()
-            .args([
-                "ADD",
-                STARTUP_RUN_KEY,
-                "/V",
-                STARTUP_RUN_VALUE_NAME,
-                "/T",
-                "REG_SZ",
-                "/D",
-            ])
-            .arg(value)
-            .arg("/F")
-            .status()
-            .map_err(|error| format!("failed to set startup registry value: {error}"))?;
-
-        if status.success() {
-            Ok(())
-        } else {
-            Err("failed to set startup registry value".to_string())
-        }
-    }
-
     fn delete_startup_run_key() -> Result<(), String> {
         if !startup_run_key_exists() {
             return Ok(());
         }
 
         let status = reg()
-            .args(["DELETE", STARTUP_RUN_KEY, "/V", STARTUP_RUN_VALUE_NAME, "/F"])
+            .args([
+                "DELETE",
+                STARTUP_RUN_KEY,
+                "/V",
+                STARTUP_RUN_VALUE_NAME,
+                "/F",
+            ])
             .status()
             .map_err(|error| format!("failed to delete startup registry value: {error}"))?;
 
@@ -1948,6 +2011,112 @@ mod platform {
         } else {
             Err("failed to delete startup registry value".to_string())
         }
+    }
+
+    fn schtasks_ok_allow_elevation(args: &[&str]) -> Result<(), String> {
+        match schtasks_ok(args) {
+            Ok(()) => Ok(()),
+            Err(error) => schtasks_ok_elevated(args).map_err(|elevated_error| {
+                format!("{error}; elevated retry failed: {elevated_error}")
+            }),
+        }
+    }
+
+    fn schtasks_ok(args: &[&str]) -> Result<(), String> {
+        let output = schtasks()
+            .args(args)
+            .output()
+            .map_err(|error| format!("failed to run schtasks: {error}"))?;
+
+        if output.status.success() {
+            return Ok(());
+        }
+
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        let stdout = String::from_utf8_lossy(&output.stdout);
+        let message = format!("{stderr}{stdout}").trim().to_string();
+        Err(if message.is_empty() {
+            "schtasks failed".to_string()
+        } else {
+            message
+        })
+    }
+
+    fn schtasks_ok_elevated(args: &[&str]) -> Result<(), String> {
+        let parameters = args
+            .iter()
+            .map(|arg| windows_command_arg(arg))
+            .collect::<Vec<_>>()
+            .join(" ");
+        let verb = to_wide("runas");
+        let file = to_wide("schtasks.exe");
+        let params = to_wide(&parameters);
+
+        let mut info = SHELLEXECUTEINFOW {
+            cbSize: std::mem::size_of::<SHELLEXECUTEINFOW>() as u32,
+            fMask: SEE_MASK_NOCLOSEPROCESS,
+            lpVerb: PCWSTR(verb.as_ptr()),
+            lpFile: PCWSTR(file.as_ptr()),
+            lpParameters: PCWSTR(params.as_ptr()),
+            nShow: SW_HIDE.0,
+            ..Default::default()
+        };
+
+        unsafe {
+            ShellExecuteExW(&mut info)
+                .map_err(|error| format!("failed to request startup task elevation: {error}"))?;
+
+            if info.hProcess.is_invalid() {
+                return Err("startup task elevation did not return a process handle".to_string());
+            }
+
+            WaitForSingleObject(info.hProcess, INFINITE);
+
+            let mut exit_code = 1;
+            let read_result = GetExitCodeProcess(info.hProcess, &mut exit_code);
+            let _ = CloseHandle(info.hProcess);
+            read_result
+                .map_err(|error| format!("failed to read elevated startup task result: {error}"))?;
+
+            if exit_code == 0 {
+                Ok(())
+            } else {
+                Err(format!("elevated schtasks exited with code {exit_code}"))
+            }
+        }
+    }
+
+    fn windows_command_arg(value: &str) -> String {
+        if !value.is_empty()
+            && !value
+                .chars()
+                .any(|ch| ch.is_whitespace() || ch == '\"' || ch == '\\')
+        {
+            return value.to_string();
+        }
+
+        let mut escaped = String::from("\"");
+        let mut backslashes = 0;
+
+        for ch in value.chars() {
+            match ch {
+                '\\' => backslashes += 1,
+                '\"' => {
+                    escaped.push_str(&"\\".repeat(backslashes * 2 + 1));
+                    escaped.push('\"');
+                    backslashes = 0;
+                }
+                _ => {
+                    escaped.push_str(&"\\".repeat(backslashes));
+                    backslashes = 0;
+                    escaped.push(ch);
+                }
+            }
+        }
+
+        escaped.push_str(&"\\".repeat(backslashes * 2));
+        escaped.push('\"');
+        escaped
     }
 
     fn schtasks() -> Command {

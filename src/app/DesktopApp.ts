@@ -55,6 +55,8 @@ import {
   scanDesktopItems,
   setAppProcessPriority,
   getStartupEnabled,
+  loadDesktopState,
+  logStartupEvent,
   setStartupEnabled,
   showDesktopItemProperties,
   invokeNativeDesktopContextMenuCommand,
@@ -281,8 +283,11 @@ export class DesktopApp {
 
   async boot() {
     try {
-      const attachLayer = this.attachDesktopLayerWithRetry(12, 180);
+      void logStartupEvent("frontend:boot_enter");
+      const nativeState = loadDesktopState();
+      const attachLayer = this.attachDesktopLayerWithRetry(40, 150);
       const items = await scanDesktopItems({ includeIcons: false });
+      void logStartupEvent(`frontend:scan_done count=${items.length}`);
       if (items.length === 0) {
         await this.logDesktopDiagnostics("scan returned no desktop items");
         await restoreNativeDesktopIcons();
@@ -290,7 +295,7 @@ export class DesktopApp {
         return;
       }
 
-      this.store.hydrate(items);
+      this.store.hydrate(items, await nativeState);
       void setAppProcessPriority(this.store.getSettings().appPriority);
       void this.syncStartupSetting();
       this.desktopScanSignature = desktopItemsSignature(items);
@@ -299,7 +304,7 @@ export class DesktopApp {
 
       let desktopLayerAttached = await attachLayer;
       if (!desktopLayerAttached && isDesktopRuntime()) {
-        desktopLayerAttached = await this.attachDesktopLayerWithRetry(10, 250);
+        desktopLayerAttached = await this.attachDesktopLayerWithRetry(20, 250);
       }
 
       if (!desktopLayerAttached && isDesktopRuntime()) {
@@ -325,6 +330,7 @@ export class DesktopApp {
         return;
       }
 
+      void logStartupEvent("frontend:shown");
       await this.logDesktopDiagnostics("desktop layer shown");
       this.startDesktopAutoSync();
       this.scheduleFullDesktopItemLoad();

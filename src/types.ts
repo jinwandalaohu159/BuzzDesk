@@ -159,6 +159,7 @@ export type PersistedNode = PersistedItemNode | PersistedFolderNode;
 
 export interface PersistedDesktopState {
   version: 1;
+  updatedAt?: number;
   nodes: PersistedNode[];
   settings?: Partial<DesktopSettings>;
 }

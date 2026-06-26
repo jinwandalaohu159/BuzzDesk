@@ -5,6 +5,7 @@ import type {
   DesktopPosition,
   FolderAppearanceSettings,
   FolderNode,
+  PersistedDesktopState,
   PersistedNode
 } from "../types";
 import {
@@ -54,8 +55,8 @@ export class DesktopStore {
     return this.scannedItems;
   }
 
-  hydrate(scannedItems: AppNode[]) {
-    const saved = loadState();
+  hydrate(scannedItems: AppNode[], nativeState: PersistedDesktopState | null = null) {
+    const saved = choosePersistedState(nativeState, loadState());
     this.scannedItems = scannedItems;
     this.settings = normalizeDesktopSettings(saved?.settings);
     const visibleScannedItems = this.visibleScannedItems();
@@ -491,6 +492,22 @@ export class DesktopStore {
       return !systemIconId || this.settings.systemIcons[systemIconId];
     });
   }
+}
+
+function choosePersistedState(nativeState: PersistedDesktopState | null, localState: PersistedDesktopState | null) {
+  if (!nativeState) {
+    return localState;
+  }
+
+  if (!localState) {
+    return nativeState;
+  }
+
+  return updatedAtOf(localState) > updatedAtOf(nativeState) ? localState : nativeState;
+}
+
+function updatedAtOf(state: PersistedDesktopState) {
+  return Number.isFinite(state.updatedAt) ? Number(state.updatedAt) : 0;
 }
 
 function systemIconsChanged(a: DesktopSettings["systemIcons"], b: DesktopSettings["systemIcons"]) {
