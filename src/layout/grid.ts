@@ -8,10 +8,6 @@ import {
 import { createFlowGrid, layoutDesktopFlow, spanSize, tileSpan } from "./flow";
 import type { DesktopNode, DesktopPosition, DesktopSettings, FolderAppearanceSettings, LayoutSlot } from "../types";
 
-interface FreeDesktopSnapOptions {
-  compactPlacement?: boolean;
-}
-
 export const folderGrid = {
   itemWidth: 92,
   minItemWidth: 76,
@@ -271,9 +267,9 @@ export function snapFreeDesktopLayoutPosition(
   viewportWidth: number,
   viewportHeight: number,
   settings: DesktopSettings,
-  options: FreeDesktopSnapOptions = {}
+  compactPlacement = false
 ): DesktopPosition {
-  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings, options);
+  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings, compactPlacement);
   const column = clamp(Math.round((x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
   const row = Math.max(0, Math.round((y - grid.top) / grid.rowPitch));
 
@@ -294,9 +290,9 @@ export function nearbyFreeDesktopLayoutPositions(
   viewportWidth: number,
   viewportHeight: number,
   settings: DesktopSettings,
-  options: FreeDesktopSnapOptions = {}
+  compactPlacement = false
 ) {
-  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings, options);
+  const { grid, xOffset, maxColumn } = freeGridPlacement(width, viewportWidth, settings, compactPlacement);
   const startColumn = clamp(Math.round((preferred.x - grid.left - xOffset) / grid.columnPitch), 0, maxColumn);
   const startRow = Math.max(0, Math.round((preferred.y - grid.top) / grid.rowPitch));
   const candidates: DesktopPosition[] = [preferred];
@@ -436,7 +432,7 @@ function freeGridPlacement(
   width: number,
   viewportWidth: number,
   settings: DesktopSettings,
-  options: FreeDesktopSnapOptions = {}
+  compactPlacement = false
 ) {
   const base = desktopTileMetrics(settings);
   const grid = createFlowGrid(viewportWidth, base, 0, 0);
@@ -446,7 +442,7 @@ function freeGridPlacement(
   return {
     base,
     grid,
-    xOffset: options.compactPlacement ? 0 : Math.max(0, Math.round((reservedWidth - width) / 2)),
+    xOffset: compactPlacement ? 0 : Math.max(0, Math.round((reservedWidth - width) / 2)),
     maxColumn: Math.max(0, grid.columns - columnSpan)
   };
 }

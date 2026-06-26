@@ -2017,7 +2017,7 @@ export class DesktopApp {
               item.height,
               new Set([item.id]),
               [],
-              { compactPlacement: this.isCompactPlacementFolder(item.id) }
+              this.isCompactPlacementFolder(item.id)
             )
           }));
 
@@ -2111,7 +2111,7 @@ export class DesktopApp {
       viewport.width,
       viewport.height,
       this.store.getSettings(),
-      { compactPlacement }
+      compactPlacement
     );
   }
 
@@ -2129,7 +2129,7 @@ export class DesktopApp {
       viewport.width,
       viewport.height,
       this.store.getSettings(),
-      { compactPlacement }
+      compactPlacement
     );
   }
 
@@ -2197,14 +2197,13 @@ export class DesktopApp {
     height: number,
     excludeIds: ReadonlySet<string>,
     extraOccupied: Array<{ x: number; y: number; width: number; height: number }> = [],
-    options: { compactPlacement?: boolean } = {}
+    compactPlacement = false
   ): DesktopPosition {
     const viewport = desktopViewport();
     const occupied = [...this.desktopOccupiedRects(excludeIds), ...extraOccupied];
-    const compactPlacement = options.compactPlacement === true;
     const snapped = this.snapDesktopPosition(preferred.x, preferred.y, width, height, viewport, compactPlacement);
     const candidates = uniqueDesktopPositions([
-      ...this.compactPlacementEdgeCandidates(preferred, width, height, excludeIds, viewport, compactPlacement),
+      ...this.compactPlacementEdgeCandidates(width, height, excludeIds, viewport, compactPlacement),
       ...this.nearbySnapCandidates(snapped, width, height, viewport, compactPlacement)
     ]).sort((a, b) => desktopPositionDistance(a, preferred) - desktopPositionDistance(b, preferred));
 
@@ -2219,7 +2218,6 @@ export class DesktopApp {
   }
 
   private compactPlacementEdgeCandidates(
-    preferred: { x: number; y: number },
     width: number,
     height: number,
     excludeIds: ReadonlySet<string>,
@@ -2268,9 +2266,7 @@ export class DesktopApp {
       });
     }
 
-    return candidates.sort(
-      (a, b) => desktopPositionDistance(a, preferred) - desktopPositionDistance(b, preferred)
-    );
+    return candidates;
   }
 
   private desktopOccupiedRects(excludeIds: ReadonlySet<string>) {
