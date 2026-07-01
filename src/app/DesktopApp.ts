@@ -98,6 +98,15 @@ const folderPagerHeight = 30;
 const dragStartDistancePx = 7;
 const mergeIntentDelayMs = 400;
 const trashIntentDelayMs = 30;
+<<<<<<< HEAD
+=======
+const reorderPreviewDelayMs = 60;
+const reorderPreviewMoveTolerancePx = 20;
+const reorderPreviewSettleMs = 270;
+const reorderVisualPaddingX = 6;
+const reorderVisualPaddingY = 5;
+const freeReorderOverlapMarginPx = 2;
+>>>>>>> master
 
 // Owns desktop interaction orchestration; visual rendering, layout math, state
 // mutation, and platform calls stay in their own modules.
@@ -160,6 +169,43 @@ interface DragTargetSnapshot {
   hitRect: Rect;
 }
 
+<<<<<<< HEAD
+=======
+interface DragReorderIntent {
+  key: string;
+  startX: number;
+  startY: number;
+  since: number;
+}
+
+interface DragReorderPreviewTarget {
+  id: string;
+  x: number;
+  y: number;
+}
+
+interface DragReorderCandidate {
+  key: string;
+  preview: DragReorderPreviewTarget[];
+  freePlan?: FreeReorderPlan;
+}
+
+interface FreeReorderRect {
+  id: string;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  compactPlacement: boolean;
+}
+
+interface FreeReorderPlan {
+  key: string;
+  movingIds: Set<string>;
+  positions: Array<{ id: string; position: DesktopPosition }>;
+}
+
+>>>>>>> master
 interface Rect {
   left: number;
   top: number;
@@ -265,6 +311,14 @@ export class DesktopApp {
   private fullDesktopLoadScheduled = false;
   private fullDesktopLoadInFlight = false;
   private drag: ActiveDrag | null = null;
+<<<<<<< HEAD
+=======
+  private dragReorderIntent: DragReorderIntent | null = null;
+  private dragReorderActiveKey: string | null = null;
+  private dragReorderPreviewIds = new Set<string>();
+  private dragReorderFreePlan: FreeReorderPlan | null = null;
+  private dragReorderWakeTimer: number | null = null;
+>>>>>>> master
   private folderSwipe: FolderSwipe | null = null;
   private marquee: MarqueeSelection | null = null;
   private suppressNextClick = false;
@@ -1913,6 +1967,10 @@ export class DesktopApp {
       active.frame = null;
       const didAutoScroll = this.autoScrollDrag(active);
       if (didAutoScroll) {
+<<<<<<< HEAD
+=======
+        this.clearDragReorderPreview();
+>>>>>>> master
         active.targetSnapshots = this.captureMergeTargets(active);
         active.targetRect = null;
         this.clearMergeCandidate(active);
@@ -1921,6 +1979,10 @@ export class DesktopApp {
       if (this.isDesktopGroupDrag(active)) {
         this.updateDesktopGroupDragFrame(active);
         this.updateMergeTarget(active.currentX, active.currentY);
+<<<<<<< HEAD
+=======
+        this.updateDragReorderPreview(active);
+>>>>>>> master
         if (didAutoScroll && this.drag === active) {
           this.scheduleDragFrame();
         }
@@ -1949,6 +2011,10 @@ export class DesktopApp {
         this.writeMergePull(active, transform.targetPullX, transform.targetPullY);
       }
       this.writeDragTransform(active, toTransformStyle(transform));
+<<<<<<< HEAD
+=======
+      this.updateDragReorderPreview(active);
+>>>>>>> master
 
       if (didAutoScroll && this.drag === active) {
         this.scheduleDragFrame();
@@ -1979,6 +2045,445 @@ export class DesktopApp {
     });
   }
 
+<<<<<<< HEAD
+=======
+  private updateDragReorderPreview(drag: ActiveDrag) {
+    if (
+      !drag.started ||
+      drag.targetId ||
+      drag.candidateTargetId ||
+      !this.isPointerInReorderGap(drag)
+    ) {
+      this.clearDragReorderPreview();
+      return;
+    }
+
+    const candidate = this.dragReorderCandidate(drag);
+    if (!candidate) {
+      this.clearDragReorderPreview();
+      return;
+    }
+
+    const now = performance.now();
+    const intent = this.dragReorderIntent;
+    const activeForCandidate = this.dragReorderActiveKey === candidate.key;
+    const movedTooFar =
+      intent &&
+      !activeForCandidate &&
+      Math.hypot(drag.currentX - intent.startX, drag.currentY - intent.startY) > reorderPreviewMoveTolerancePx;
+
+    if (!intent || intent.key !== candidate.key || movedTooFar) {
+      this.dragReorderIntent = {
+        key: candidate.key,
+        startX: drag.currentX,
+        startY: drag.currentY,
+        since: now
+      };
+      this.clearDragReorderPreview(false);
+      this.scheduleDragReorderWake(reorderPreviewDelayMs);
+      return;
+    }
+
+    const elapsed = now - intent.since;
+    if (elapsed < reorderPreviewDelayMs) {
+      this.clearDragReorderPreview(false);
+      this.scheduleDragReorderWake(reorderPreviewDelayMs - elapsed);
+      return;
+    }
+
+    this.clearDragReorderWake();
+    this.dragReorderActiveKey = candidate.key;
+    this.dragReorderFreePlan = candidate.freePlan ?? null;
+    this.applyDragReorderPreview(candidate.preview);
+  }
+
+  private dragReorderCandidate(drag: ActiveDrag): DragReorderCandidate | null {
+    return this.store.getSettings().layoutMode === "free"
+      ? this.freeReorderCandidate(drag)
+      : this.autoReorderCandidate(drag);
+  }
+
+  private autoReorderCandidate(drag: ActiveDrag): DragReorderCandidate | null {
+    if (this.store.getSettings().layoutMode !== "auto") {
+      return null;
+    }
+
+    const nodes = this.store.getNodes();
+    const movingNodes = this.autoReorderMovingNodes(drag, nodes);
+    if (movingNodes.length === 0) {
+      return null;
+    }
+
+    const targetIndex = this.desktopInsertionIndex(drag.currentX, drag.currentY);
+    const previewNodes = this.reorderedAutoNodes(nodes, movingNodes, targetIndex);
+    const movingIds = new Set(movingNodes.map((node) => node.id));
+    const viewport = desktopViewport();
+    const settings = this.effectiveDesktopSettings(this.store.getSettings(), previewNodes, viewport);
+    const previewLayout = computeDesktopLayout(
+      previewNodes,
+      viewport.width,
+      viewport.height,
+      settings,
+      viewport.offsetX,
+      viewport.offsetY
+    );
+
+    const preview = nodes
+      .filter((node) => !movingIds.has(node.id))
+      .map((node) => {
+        const next = previewLayout.get(node.id);
+        return next ? this.dragReorderPreviewTarget(node.id, next.x, next.y) : null;
+      })
+      .filter((target): target is DragReorderPreviewTarget => Boolean(target));
+
+    if (preview.length === 0) {
+      return null;
+    }
+
+    return {
+      key: `auto:${targetIndex}`,
+      preview
+    };
+  }
+
+  private autoReorderMovingNodes(drag: ActiveDrag, nodes: DesktopNode[]) {
+    if (drag.source.type === "folder") {
+      const child = this.findFolderChild(drag.source.folderId, drag.source.childId);
+      return child ? [child] : [];
+    }
+
+    const movingIds = new Set(this.desktopDragSourceIds(drag));
+    return nodes.filter((node) => movingIds.has(node.id));
+  }
+
+  private reorderedAutoNodes(
+    nodes: DesktopNode[],
+    movingNodes: DesktopNode[],
+    targetIndex: number
+  ) {
+    const movingIds = new Set(movingNodes.map((node) => node.id));
+    const clampedTarget = clampIndex(targetIndex, nodes.length);
+    const removedBeforeTarget = nodes
+      .slice(0, clampedTarget)
+      .filter((node) => movingIds.has(node.id)).length;
+    const remaining = nodes.filter((node) => !movingIds.has(node.id));
+    const insertionIndex = clampIndex(clampedTarget - removedBeforeTarget, remaining.length);
+
+    return [
+      ...remaining.slice(0, insertionIndex),
+      ...movingNodes,
+      ...remaining.slice(insertionIndex)
+    ];
+  }
+
+  private freeReorderCandidate(drag: ActiveDrag): DragReorderCandidate | null {
+    if (this.store.getSettings().layoutMode !== "free" || drag.source.type !== "desktop") {
+      return null;
+    }
+
+    const plan = this.freeReorderPlan(drag);
+    if (!plan) {
+      return null;
+    }
+
+    const viewport = desktopViewport();
+    const preview = plan.positions
+      .filter((entry) => !plan.movingIds.has(entry.id))
+      .map((entry) =>
+        this.dragReorderPreviewTarget(
+          entry.id,
+          viewport.offsetX + entry.position.x,
+          viewport.offsetY + entry.position.y
+        )
+      )
+      .filter((target): target is DragReorderPreviewTarget => Boolean(target));
+
+    if (preview.length === 0) {
+      return null;
+    }
+
+    return {
+      key: `free:${plan.key}`,
+      preview,
+      freePlan: plan
+    };
+  }
+
+  private dragReorderPreviewTarget(id: string, x: number, y: number): DragReorderPreviewTarget | null {
+    const current = this.layout.get(id);
+    if (!current || (Math.abs(current.x - x) < 0.5 && Math.abs(current.y - y) < 0.5)) {
+      return null;
+    }
+
+    return { id, x, y };
+  }
+
+  private freeReorderPlan(drag: ActiveDrag): FreeReorderPlan | null {
+    const movingRects = this.freeReorderMovingRects(drag);
+    if (movingRects.length === 0) {
+      return null;
+    }
+
+    return this.resolveFreeReorderPlan(movingRects);
+  }
+
+  private freeReorderMovingRects(drag: ActiveDrag): FreeReorderRect[] {
+    const movedItems = this.freeDragMovedItems(drag);
+    if (movedItems.length === 0) {
+      return [];
+    }
+
+    const viewport = desktopViewport();
+    const { dx, dy } = this.freeDragDelta(drag, movedItems, viewport);
+    if (movedItems.length > 1) {
+      return this.freeGroupReorderRects(movedItems, dx, dy);
+    }
+
+    return movedItems.map((item) => {
+      const compactPlacement = this.isCompactPlacementFolder(item.id);
+      const position = this.snapDesktopPosition(
+        item.baseX + dx - viewport.offsetX,
+        item.baseY + dy - viewport.offsetY,
+        item.width,
+        item.height,
+        viewport,
+        compactPlacement
+      );
+
+      return {
+        id: item.id,
+        x: position.x,
+        y: position.y,
+        width: item.width,
+        height: item.height,
+        compactPlacement
+      };
+    });
+  }
+
+  private freeGroupReorderRects(
+    movedItems: Array<Pick<DragGroupItem, "id" | "baseX" | "baseY" | "width" | "height">>,
+    dx: number,
+    dy: number
+  ): FreeReorderRect[] {
+    const viewport = desktopViewport();
+    const groupLeft = Math.min(...movedItems.map((item) => item.baseX - viewport.offsetX));
+    const groupTop = Math.min(...movedItems.map((item) => item.baseY - viewport.offsetY));
+    const groupRight = Math.max(...movedItems.map((item) => item.baseX - viewport.offsetX + item.width));
+    const groupBottom = Math.max(...movedItems.map((item) => item.baseY - viewport.offsetY + item.height));
+    const groupWidth = groupRight - groupLeft;
+    const groupHeight = groupBottom - groupTop;
+    const position = this.snapDesktopPosition(groupLeft + dx, groupTop + dy, groupWidth, groupHeight, viewport);
+
+    return movedItems.map((item) => ({
+      id: item.id,
+      x: position.x + (item.baseX - viewport.offsetX - groupLeft),
+      y: position.y + (item.baseY - viewport.offsetY - groupTop),
+      width: item.width,
+      height: item.height,
+      compactPlacement: this.isCompactPlacementFolder(item.id)
+    }));
+  }
+
+  private resolveFreeReorderPlan(movingRects: FreeReorderRect[]): FreeReorderPlan | null {
+    const movingIds = new Set(movingRects.map((rect) => rect.id));
+    const movingById = new Map(movingRects.map((rect) => [rect.id, rect]));
+    const desktopRects = this.freeDesktopLayoutRects(movingIds);
+    const displaced = desktopRects
+      .filter((rect) =>
+        movingRects.some((movingRect) => rectsOverlapWithMargin(rect, movingRect, freeReorderOverlapMarginPx))
+      )
+      .sort((a, b) => nearestMovingRectDistance(a, movingRects) - nearestMovingRectDistance(b, movingRects));
+
+    if (displaced.length === 0) {
+      return null;
+    }
+
+    const assigned = new Map(movingById);
+    const displacedIds = new Set<string>();
+
+    displaced.forEach((rect) => {
+      const excludeIds = new Set([...movingIds, rect.id, ...displacedIds]);
+      const occupied = Array.from(assigned.values());
+      const position = this.findOpenDesktopPosition(
+        { x: rect.x, y: rect.y },
+        rect.width,
+        rect.height,
+        excludeIds,
+        occupied,
+        rect.compactPlacement
+      );
+
+      assigned.set(rect.id, {
+        ...rect,
+        x: position.x,
+        y: position.y
+      });
+      displacedIds.add(rect.id);
+    });
+
+    const positions = Array.from(assigned.values()).map((rect) => ({
+      id: rect.id,
+      position: {
+        x: Math.round(rect.x),
+        y: Math.round(rect.y)
+      }
+    }));
+
+    return {
+      key: freeReorderPlanKey(positions),
+      movingIds,
+      positions
+    };
+  }
+
+  private isPointerInReorderGap(drag: ActiveDrag) {
+    return !this.isPointerOverMergeTarget(drag) && !this.isPointerOverDesktopVisualContent(drag);
+  }
+
+  private isPointerOverMergeTarget(drag: ActiveDrag) {
+    return drag.targetSnapshots.some((snapshot) => pointInMergeRect(drag.currentX, drag.currentY, snapshot.hitRect));
+  }
+
+  private isPointerOverDesktopVisualContent(drag: ActiveDrag) {
+    const excludedIds = new Set(this.desktopDragSourceIds(drag));
+    if (drag.source.type === "folder") {
+      excludedIds.add(drag.source.folderId);
+    }
+
+    return Array.from(this.grid.querySelectorAll<HTMLElement>("[data-node-id]")).some((element) => {
+      const id = element.dataset.nodeId;
+      if (
+        !id ||
+        excludedIds.has(id) ||
+        element.classList.contains("is-dragging") ||
+        element.classList.contains("is-reorder-preview")
+      ) {
+        return false;
+      }
+
+      const rect = this.desktopTileVisualRect(element);
+      return Boolean(rect && pointInMergeRect(drag.currentX, drag.currentY, rect));
+    });
+  }
+
+  private desktopTileVisualRect(element: HTMLElement) {
+    const icon = element.querySelector<HTMLElement>(".folder-cover")
+      ?? element.querySelector<HTMLElement>(".app-icon")
+      ?? element.querySelector<HTMLElement>(".fallback-icon")
+      ?? element.querySelector<HTMLElement>(".icon-shell");
+    const label = element.querySelector<HTMLElement>(".tile-rename")
+      ?? element.querySelector<HTMLElement>(".tile-name");
+    const rects = [
+      icon?.getBoundingClientRect() ?? null,
+      this.tileLabelVisualRect(label)
+    ].filter((rect): rect is DOMRect => Boolean(rect && rect.width > 0 && rect.height > 0));
+
+    if (rects.length === 0) {
+      return null;
+    }
+
+    return expandedRect({
+      left: Math.min(...rects.map((rect) => rect.left)),
+      top: Math.min(...rects.map((rect) => rect.top)),
+      right: Math.max(...rects.map((rect) => rect.right)),
+      bottom: Math.max(...rects.map((rect) => rect.bottom))
+    }, reorderVisualPaddingX, reorderVisualPaddingY);
+  }
+
+  private tileLabelVisualRect(label: HTMLElement | null) {
+    if (!label) {
+      return null;
+    }
+
+    if (!label.classList.contains("tile-name")) {
+      return label.getBoundingClientRect();
+    }
+
+    const range = document.createRange();
+    range.selectNodeContents(label);
+    const rect = range.getBoundingClientRect();
+    range.detach();
+    return rect.width > 0 && rect.height > 0 ? rect : label.getBoundingClientRect();
+  }
+
+  private applyDragReorderPreview(targets: DragReorderPreviewTarget[]) {
+    const nextIds = new Set(targets.map((target) => target.id));
+
+    this.dragReorderPreviewIds.forEach((id) => {
+      if (!nextIds.has(id)) {
+        this.clearDragReorderPreviewElement(id);
+      }
+    });
+
+    targets.forEach((target) => {
+      const element = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(target.id)}"]`);
+      if (!element || element.classList.contains("is-dragging")) {
+        return;
+      }
+
+      const transform = tileTransform(target.x, target.y);
+      element.classList.add("is-reorder-preview");
+      if (element.style.transform !== transform) {
+        element.style.transform = transform;
+      }
+    });
+
+    this.dragReorderPreviewIds = nextIds;
+  }
+
+  private clearDragReorderPreview(resetIntent = true) {
+    this.dragReorderPreviewIds.forEach((id) => {
+      this.clearDragReorderPreviewElement(id);
+    });
+    this.dragReorderPreviewIds.clear();
+    this.dragReorderActiveKey = null;
+    this.dragReorderFreePlan = null;
+    this.clearDragReorderWake();
+    if (resetIntent) {
+      this.dragReorderIntent = null;
+    }
+  }
+
+  private clearDragReorderPreviewElement(id: string) {
+    const element = this.grid.querySelector<HTMLElement>(`[data-node-id="${CSS.escape(id)}"]`);
+    if (!element) {
+      return;
+    }
+
+    const slot = this.layout.get(id);
+    if (!slot) {
+      element.classList.remove("is-reorder-preview");
+      element.style.transform = "";
+      return;
+    }
+
+    element.style.transform = tileTransform(slot.x, slot.y);
+    window.setTimeout(() => {
+      if (!this.dragReorderPreviewIds.has(id)) {
+        element.classList.remove("is-reorder-preview");
+      }
+    }, reorderPreviewSettleMs);
+  }
+
+  private scheduleDragReorderWake(delayMs: number) {
+    this.clearDragReorderWake();
+    this.dragReorderWakeTimer = window.setTimeout(() => {
+      this.dragReorderWakeTimer = null;
+      if (this.drag?.started && !this.drag.committing) {
+        this.scheduleDragFrame();
+      }
+    }, Math.max(0, Math.ceil(delayMs)));
+  }
+
+  private clearDragReorderWake() {
+    if (this.dragReorderWakeTimer !== null) {
+      window.clearTimeout(this.dragReorderWakeTimer);
+      this.dragReorderWakeTimer = null;
+    }
+  }
+
+>>>>>>> master
   private autoScrollDrag(drag: ActiveDrag) {
     const delta = dragAutoScrollDelta(
       drag.currentX,
@@ -2004,6 +2509,7 @@ export class DesktopApp {
   }
 
   private commitFreeDesktopDrag(drag: ActiveDrag) {
+<<<<<<< HEAD
     let dx = drag.currentX - drag.startX + this.root.scrollLeft - drag.startScrollLeft;
     let dy = drag.currentY - drag.startY + this.root.scrollTop - drag.startScrollTop;
     const viewport = desktopViewport();
@@ -2032,6 +2538,23 @@ export class DesktopApp {
       ? this.resolveFreeGroupPositions(movedItems, dx, dy)
       : movedItems
           .filter((item) => item.id)
+=======
+    const reorderPlan = this.activeFreeReorderPlan(drag);
+    if (reorderPlan) {
+      return this.store.updateNodePositions(reorderPlan.positions);
+    }
+
+    const viewport = desktopViewport();
+    const movedItems = this.freeDragMovedItems(drag);
+    if (movedItems.length === 0) {
+      return false;
+    }
+
+    const { dx, dy } = this.freeDragDelta(drag, movedItems, viewport);
+    const positions = movedItems.length > 1
+      ? this.resolveFreeGroupPositions(movedItems, dx, dy)
+      : movedItems
+>>>>>>> master
           .map((item) => ({
             id: item.id,
             position: this.findOpenDesktopPosition(
@@ -2054,6 +2577,66 @@ export class DesktopApp {
     return this.store.updateNodePositions(positions);
   }
 
+<<<<<<< HEAD
+=======
+  private freeDragMovedItems(
+    drag: ActiveDrag
+  ): Array<Pick<DragGroupItem, "id" | "baseX" | "baseY" | "width" | "height">> {
+    if (drag.source.type !== "desktop") {
+      return [];
+    }
+
+    return this.isDesktopGroupDrag(drag)
+      ? drag.groupItems
+      : [{
+          id: drag.source.nodeId,
+          baseX: drag.baseX,
+          baseY: drag.baseY,
+          width: drag.width,
+          height: drag.height
+        }];
+  }
+
+  private freeDragDelta(
+    drag: ActiveDrag,
+    movedItems: Array<Pick<DragGroupItem, "baseX" | "baseY" | "width" | "height">>,
+    viewport: ReturnType<typeof desktopViewport>
+  ) {
+    let dx = drag.currentX - drag.startX + this.root.scrollLeft - drag.startScrollLeft;
+    let dy = drag.currentY - drag.startY + this.root.scrollTop - drag.startScrollTop;
+
+    if (movedItems.length > 1) {
+      const minX = Math.min(...movedItems.map((item) => item.baseX - viewport.offsetX));
+      const minY = Math.min(...movedItems.map((item) => item.baseY - viewport.offsetY));
+      const maxX = Math.max(...movedItems.map((item) => item.baseX - viewport.offsetX + item.width));
+      const maxY = Math.max(...movedItems.map((item) => item.baseY - viewport.offsetY + item.height));
+      const metrics = desktopTileMetrics(this.store.getSettings());
+      dx = clampScroll(dx, metrics.paddingX - minX, viewport.width - metrics.paddingX - maxX);
+      dy = clampScroll(dy, metrics.paddingY - minY, viewport.height - metrics.paddingY - maxY);
+    }
+
+    return { dx, dy };
+  }
+
+  private activeFreeReorderPlan(drag: ActiveDrag) {
+    if (
+      this.store.getSettings().layoutMode !== "free" ||
+      drag.targetId ||
+      drag.candidateTargetId ||
+      !this.isPointerInReorderGap(drag)
+    ) {
+      return null;
+    }
+
+    const candidate = this.freeReorderCandidate(drag);
+    if (!candidate?.freePlan || candidate.key !== this.dragReorderActiveKey) {
+      return null;
+    }
+
+    return this.dragReorderFreePlan ?? candidate.freePlan;
+  }
+
+>>>>>>> master
   private clampedDesktopPosition(
     x: number,
     y: number,
@@ -2323,6 +2906,31 @@ export class DesktopApp {
       }));
   }
 
+<<<<<<< HEAD
+=======
+  private freeDesktopLayoutRects(excludeIds: ReadonlySet<string>): FreeReorderRect[] {
+    const viewport = desktopViewport();
+    return this.store.getNodes()
+      .filter((node) => !excludeIds.has(node.id))
+      .map((node): FreeReorderRect | null => {
+        const slot = this.layout.get(node.id);
+        if (!slot) {
+          return null;
+        }
+
+        return {
+          id: node.id,
+          x: slot.x - viewport.offsetX,
+          y: slot.y - viewport.offsetY,
+          width: slot.width,
+          height: slot.height,
+          compactPlacement: node.type === "folder" && normalizeFolderAppearance(node.appearance).compactPlacement
+        };
+      })
+      .filter((rect): rect is FreeReorderRect => Boolean(rect));
+  }
+
+>>>>>>> master
   private promoteFolderDrag(drag: ActiveDrag) {
     if (drag.source.type !== "folder") {
       return;
@@ -2549,6 +3157,10 @@ export class DesktopApp {
 
     if (targetId) {
       this.clearMergeCandidate(drag);
+<<<<<<< HEAD
+=======
+      this.clearDragReorderPreview();
+>>>>>>> master
     }
 
     if (drag.targetId === targetId) {
@@ -2836,6 +3448,10 @@ export class DesktopApp {
 
   private clearDragVisualState(drag: ActiveDrag) {
     this.root.classList.remove("is-drag-active");
+<<<<<<< HEAD
+=======
+    this.clearDragReorderPreview();
+>>>>>>> master
 
     if (this.isDesktopGroupDrag(drag)) {
       drag.groupItems.forEach((item) => {
@@ -5489,6 +6105,35 @@ function clampScroll(value: number, min: number, max: number) {
   return Math.min(Math.max(min, max), Math.max(min, value));
 }
 
+<<<<<<< HEAD
+=======
+function clampIndex(index: number, length: number) {
+  return Math.min(length, Math.max(0, index));
+}
+
+function tileTransform(x: number, y: number) {
+  return `translate3d(${roundFrameValue(x)}px, ${roundFrameValue(y)}px, 0)`;
+}
+
+function freeReorderPlanKey(positions: Array<{ id: string; position: DesktopPosition }>) {
+  return positions
+    .map((entry) => `${entry.id}:${entry.position.x}:${entry.position.y}`)
+    .join("|");
+}
+
+function nearestMovingRectDistance(rect: FreeReorderRect, movingRects: FreeReorderRect[]) {
+  const centerX = rect.x + rect.width / 2;
+  const centerY = rect.y + rect.height / 2;
+  return Math.min(
+    ...movingRects.map((movingRect) => {
+      const movingCenterX = movingRect.x + movingRect.width / 2;
+      const movingCenterY = movingRect.y + movingRect.height / 2;
+      return Math.hypot(centerX - movingCenterX, centerY - movingCenterY);
+    })
+  );
+}
+
+>>>>>>> master
 function normalizedRect(startX: number, startY: number, currentX: number, currentY: number): Rect {
   const left = Math.min(startX, currentX);
   const top = Math.min(startY, currentY);
