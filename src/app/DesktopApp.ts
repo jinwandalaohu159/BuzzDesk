@@ -72,6 +72,7 @@ import {
   loadDesktopState,
   logStartupEvent,
   currentAppVersion,
+  downloadAndLaunchUpdateInstaller,
   openUpdateReleasePage,
   setStartupEnabled,
   showDesktopItemProperties,
@@ -3734,6 +3735,8 @@ export class DesktopApp {
         currentVersion: result.currentVersion,
         latestVersion: result.latestVersion,
         releaseUrl: result.releaseUrl,
+        installerUrl: result.installerUrl,
+        installerName: result.installerName,
         error: null,
         checkedAt: Date.now()
       };
@@ -3779,17 +3782,43 @@ export class DesktopApp {
 
     if (
       this.updateCheckState.status !== "available" ||
-      !this.updateCheckState.latestVersion ||
-      !this.updateCheckState.releaseUrl
+      !this.updateCheckState.latestVersion
     ) {
       return;
     }
 
+    const installerUrl = this.updateCheckState.installerUrl;
+    const installerName = this.updateCheckState.installerName;
     const releaseUrl = this.updateCheckState.releaseUrl;
+
     const confirmed = await this.confirmUpdateRelease(this.updateCheckState);
-    if (confirmed) {
-      void openUpdateReleasePage(releaseUrl);
+    if (!confirmed) {
+      return;
     }
+
+    if (installerUrl && installerName) {
+      this.updateCheckState = { ...this.updateCheckState, installing: true };
+      this.renderSettingsLayer();
+
+      try {
+        await downloadAndLaunchUpdateInstaller(installerUrl, installerName);
+      } catch (error) {
+        console.warn("Failed to download and launch installer", error);
+        this.updateCheckState = {
+          ...this.updateCheckState,
+          installing: false,
+          error: "下载失败，请手动下载。"
+        };
+        this.renderSettingsLayer();
+        return;
+      }
+
+      this.updateCheckState = { ...this.updateCheckState, installing: false };
+      this.renderSettingsLayer();
+      return;
+    }
+
+    void openUpdateReleasePage(releaseUrl ?? undefined);
   }
 
   private resetCurrentSettingsView() {

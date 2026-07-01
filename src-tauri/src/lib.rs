@@ -218,6 +218,15 @@ fn open_update_release_page(url: Option<String>) -> Result<(), String> {
 }
 
 #[tauri::command]
+fn download_and_launch_update_installer(url: String, file_name: String) -> Result<(), String> {
+    if !url.starts_with("https://github.com/jinwandalaohu159/BuzzDesk/releases") {
+        return Err("unsupported update installer url".to_string());
+    }
+
+    platform::download_and_launch_update_installer(&url, &file_name)
+}
+
+#[tauri::command]
 fn show_native_item_context_menu(
     app: AppHandle,
     launch_id: String,
@@ -471,6 +480,7 @@ pub fn run() {
             get_startup_enabled,
             set_startup_enabled,
             open_update_release_page,
+            download_and_launch_update_installer,
             show_native_item_context_menu,
             list_native_desktop_context_menu,
             invoke_native_desktop_context_menu_command,
@@ -659,6 +669,10 @@ mod platform {
     }
 
     pub fn open_update_release_page(_url: &str) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn download_and_launch_update_installer(_url: &str, _file_name: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -1054,6 +1068,46 @@ mod platform {
         } else {
             Err(format!(
                 "ShellExecuteW open failed for update release page: code {}",
+                result.0 as isize
+            ))
+        }
+    }
+
+    pub fn download_and_launch_update_installer(url: &str, file_name: &str) -> Result<(), String> {
+        let temp_dir = std::env::temp_dir();
+        let installer_path = temp_dir.join(file_name);
+
+        let response = ureq::get(url)
+            .call()
+            .map_err(|error| format!("failed to download installer: {error}"))?;
+
+        let mut file = std::fs::File::create(&installer_path)
+            .map_err(|error| format!("failed to create installer file: {error}"))?;
+
+        std::io::copy(&mut response.into_reader(), &mut file)
+            .map_err(|error| format!("failed to write installer file: {error}"))?;
+
+        drop(file);
+
+        let wide_path = to_wide(&installer_path.to_string_lossy());
+        let operation = to_wide("open");
+
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(operation.as_ptr()),
+                PCWSTR(wide_path.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+
+        if result.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!(
+                "ShellExecuteW launch installer failed: code {}",
                 result.0 as isize
             ))
         }
