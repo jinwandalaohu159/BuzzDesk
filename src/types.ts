@@ -4,6 +4,7 @@ export type FolderCoverSize = "small" | "medium" | "large";
 export type DesktopLayoutMode = "auto" | "free";
 export type AppProcessPriority = "normal" | "aboveNormal" | "high" | "realtime";
 export type SettingsView = "main" | "layout" | "system" | "contextMenu";
+export type UpdateCheckStatus = "idle" | "checking" | "available" | "current" | "error";
 export type DesktopContextMenuPlacement = "main" | "more" | "hidden";
 export type DesktopContextMenuSource = "native" | "action";
 export type DesktopSystemIconId =
@@ -43,6 +44,15 @@ export interface DesktopDiagnostics {
   shellItemCount?: number | null;
   fallbackItemCount?: number | null;
   lastError?: string | null;
+}
+
+export interface UpdateCheckState {
+  status: UpdateCheckStatus;
+  currentVersion: string;
+  latestVersion?: string | null;
+  releaseUrl?: string | null;
+  error?: string | null;
+  checkedAt?: number | null;
 }
 
 export interface WindowBounds {

@@ -35,6 +35,7 @@ import {
   renderSettingsPriorityPopover,
   renderSettingsLayer,
   renderDeleteConfirmDialog,
+  renderUpdateConfirmDialog,
   renderRatioDialog
 } from "../render/components";
 import {
@@ -60,6 +61,7 @@ import {
   createDesktopFolder,
   copyDesktopItem,
   deleteDesktopItem,
+  checkForUpdateRelease,
   listenForSettingsRequests,
   openDesktopItem,
   pasteDesktopItems,
@@ -69,6 +71,8 @@ import {
   getStartupEnabled,
   loadDesktopState,
   logStartupEvent,
+  currentAppVersion,
+  openUpdateReleasePage,
   setStartupEnabled,
   showDesktopItemProperties,
   invokeNativeDesktopContextMenuCommand,
@@ -90,7 +94,8 @@ import type {
   FolderNode,
   LayoutSlot,
   NativeContextMenuItem,
-  SettingsView
+  SettingsView,
+  UpdateCheckState
 } from "../types";
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
@@ -236,6 +241,11 @@ type ContextMenuState =
   | { type: "item"; x: number; y: number; nodeId: string }
   | { type: "folderItem"; x: number; y: number; folderId: string; childId: string };
 
+interface ConfirmDialogState {
+  kind: "delete" | "update";
+  resolve: (confirmed: boolean) => void;
+}
+
 interface FolderOpenOrigin {
   x: number;
   y: number;
@@ -290,6 +300,7 @@ export class DesktopApp {
   private settingsContextMenuPaintedDrop: SettingsContextMenuDropTarget | null = null;
   private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
+  private confirmDialog: ConfirmDialogState | null = null;
   private renamingId: string | null = null;
   private renamingFolderChild: { folderId: string; childId: string } | null = null;
   private selectedFolderChild: { folderId: string; childId: string } | null = null;
@@ -319,7 +330,15 @@ export class DesktopApp {
   private contextOverlayVersion = 0;
   private cachedDesktopNativeMenuItems: NativeContextMenuItem[] | null = null;
   private desktopNativeMenuLoad: Promise<NativeContextMenuItem[]> | null = null;
-  private deleteConfirmResolve: ((confirmed: boolean) => void) | null = null;
+  private updateCheckRequestId = 0;
+  private updateCheckState: UpdateCheckState = {
+    status: "idle",
+    currentVersion: currentAppVersion,
+    latestVersion: null,
+    releaseUrl: null,
+    error: null,
+    checkedAt: null
+  };
 
   constructor(root: HTMLElement) {
     this.root = root;
@@ -480,8 +499,8 @@ export class DesktopApp {
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
     this.settingsLayer.addEventListener("scroll", () => this.renderSettingsPriorityMenu(), true);
     this.contextMenuLayer.addEventListener("click", (event) => {
-      if (this.deleteConfirmResolve) {
-        this.onDeleteConfirmClick(event);
+      if (this.confirmDialog) {
+        this.onConfirmDialogClick(event);
       } else if (this.ratioDialogTargetId) {
         this.onRatioDialogClick(event);
       } else {
@@ -730,6 +749,7 @@ export class DesktopApp {
         contextMenuItems: this.contextMenuSettingsItems(this.settingsContextMenuParentKey),
         contextMenuTitle: this.settingsView === "contextMenu" ? contextMenuParentLabel ?? undefined : undefined,
         contextMenuParentLabel,
+        updateState: this.updateCheckState,
         animate: !wasOpen
       })
     );
@@ -895,7 +915,7 @@ export class DesktopApp {
   }
 
   private renderContextMenu() {
-    if (this.deleteConfirmResolve) {
+    if (this.confirmDialog) {
       this.contextMenuLayer.classList.add("is-open");
       return;
     }
@@ -3485,6 +3505,7 @@ export class DesktopApp {
     const priorityTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-priority-trigger]");
     const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
     const priorityPopover = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-priority-popover]");
+    const settingsActionButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-action]");
 
     if (!priorityTrigger && !priorityPopover && this.settingsPriorityMenuOpen) {
       this.settingsPriorityMenuOpen = false;
@@ -3647,6 +3668,18 @@ export class DesktopApp {
       return;
     }
 
+    const settingsAction = settingsActionButton?.dataset.settingAction;
+    if (settingsAction === "checkUpdates" || settingsAction === "updateLatest") {
+      this.cancelSettingsPreview();
+      this.settingsPriorityMenuOpen = false;
+      if (settingsAction === "checkUpdates") {
+        void this.checkForUpdates();
+      } else {
+        void this.confirmAndOpenLatestUpdate();
+      }
+      return;
+    }
+
     if (stepButton) {
       const key = stepButton.dataset.settingKey;
       const step = Number(stepButton.dataset.settingStep);
@@ -3669,6 +3702,72 @@ export class DesktopApp {
     this.settingsView = "main";
     this.settingsPriorityMenuOpen = false;
     this.renderSettingsLayer();
+  }
+
+  private async checkForUpdates() {
+    const requestId = this.updateCheckRequestId + 1;
+    this.updateCheckRequestId = requestId;
+    this.updateCheckState = {
+      ...this.updateCheckState,
+      status: "checking",
+      currentVersion: currentAppVersion,
+      latestVersion: null,
+      releaseUrl: null,
+      error: null
+    };
+    this.renderSettingsLayer();
+
+    try {
+      const result = await checkForUpdateRelease();
+      if (requestId !== this.updateCheckRequestId) {
+        return;
+      }
+
+      this.updateCheckState = {
+        status: result.hasUpdate ? "available" : "current",
+        currentVersion: result.currentVersion,
+        latestVersion: result.latestVersion,
+        releaseUrl: result.releaseUrl,
+        error: null,
+        checkedAt: Date.now()
+      };
+    } catch (error) {
+      if (requestId !== this.updateCheckRequestId) {
+        return;
+      }
+
+      console.warn("Unable to check for updates", error);
+      this.updateCheckState = {
+        ...this.updateCheckState,
+        status: "error",
+        latestVersion: null,
+        releaseUrl: null,
+        error: "\u6682\u65f6\u65e0\u6cd5\u8fde\u63a5 GitHub Releases\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+        checkedAt: Date.now()
+      };
+    }
+
+    this.renderSettingsLayer();
+  }
+
+  private async confirmAndOpenLatestUpdate() {
+    if (this.updateCheckState.status !== "available") {
+      await this.checkForUpdates();
+    }
+
+    if (
+      this.updateCheckState.status !== "available" ||
+      !this.updateCheckState.latestVersion ||
+      !this.updateCheckState.releaseUrl
+    ) {
+      return;
+    }
+
+    const releaseUrl = this.updateCheckState.releaseUrl;
+    const confirmed = await this.confirmUpdateRelease(this.updateCheckState);
+    if (confirmed) {
+      void openUpdateReleasePage(releaseUrl);
+    }
   }
 
   private resetCurrentSettingsView() {
@@ -4421,37 +4520,52 @@ export class DesktopApp {
   }
 
   private confirmDeleteItem(node: AppNode) {
+    return this.showConfirmDialog("delete", renderDeleteConfirmDialog(node.name));
+  }
+
+  private confirmUpdateRelease(updateState: UpdateCheckState) {
+    if (!updateState.latestVersion) {
+      return Promise.resolve(false);
+    }
+
+    return this.showConfirmDialog(
+      "update",
+      renderUpdateConfirmDialog(updateState.currentVersion, updateState.latestVersion)
+    );
+  }
+
+  private showConfirmDialog(kind: ConfirmDialogState["kind"], dialog: HTMLElement) {
     this.beginContextOverlayRequest();
     return new Promise<boolean>((resolve) => {
-      this.deleteConfirmResolve = resolve;
+      this.confirmDialog = { kind, resolve };
       this.contextMenuLayer.classList.add("is-open");
-      this.contextMenuLayer.replaceChildren(renderDeleteConfirmDialog(node.name));
+      this.contextMenuLayer.replaceChildren(dialog);
       requestAnimationFrame(() => {
-        this.contextMenuLayer.querySelector<HTMLButtonElement>("[data-delete-confirm]")?.focus();
+        this.contextMenuLayer.querySelector<HTMLButtonElement>("[data-confirm-accept]")?.focus();
       });
     });
   }
 
-  private closeDeleteConfirm(confirmed: boolean) {
-    if (!this.deleteConfirmResolve) {
+  private closeConfirmDialog(confirmed: boolean) {
+    if (!this.confirmDialog) {
       return;
     }
 
     this.invalidateContextOverlay();
     this.contextMenuLayer.classList.remove("is-open");
     this.contextMenuLayer.replaceChildren();
-    this.resolveDeleteConfirm(confirmed);
+    this.resolveConfirmDialog(confirmed);
   }
 
-  private onDeleteConfirmClick(event: MouseEvent) {
+  private onConfirmDialogClick(event: MouseEvent) {
     const target = event.target as HTMLElement;
-    if (target.closest("[data-delete-confirm]")) {
-      this.closeDeleteConfirm(true);
+    if (target.closest("[data-confirm-accept]")) {
+      this.closeConfirmDialog(true);
       return;
     }
 
-    if (target.closest("[data-delete-cancel]")) {
-      this.closeDeleteConfirm(false);
+    if (target.closest("[data-confirm-cancel]")) {
+      this.closeConfirmDialog(false);
     }
   }
 
@@ -4491,7 +4605,7 @@ export class DesktopApp {
   }
 
   private onContextOverlayKeyDown(event: KeyboardEvent) {
-    if (this.handleDeleteConfirmKeyDown(event)) {
+    if (this.handleConfirmDialogKeyDown(event)) {
       return;
     }
 
@@ -4513,28 +4627,28 @@ export class DesktopApp {
     }
   }
 
-  private handleDeleteConfirmKeyDown(event: KeyboardEvent) {
-    if (!this.deleteConfirmResolve) {
+  private handleConfirmDialogKeyDown(event: KeyboardEvent) {
+    if (!this.confirmDialog) {
       return false;
     }
 
     if (event.key === "Enter") {
       event.preventDefault();
       event.stopPropagation();
-      this.closeDeleteConfirm(true);
+      this.closeConfirmDialog(true);
       return true;
     }
 
     if (event.key === "Escape") {
       event.preventDefault();
       event.stopPropagation();
-      this.closeDeleteConfirm(false);
+      this.closeConfirmDialog(false);
       return true;
     }
 
     if (event.key === "Tab") {
       const buttons = Array.from(
-        this.contextMenuLayer.querySelectorAll<HTMLButtonElement>("[data-delete-cancel], [data-delete-confirm]")
+        this.contextMenuLayer.querySelectorAll<HTMLButtonElement>("[data-confirm-cancel], [data-confirm-accept]")
       );
       const currentIndex = buttons.findIndex((button) => button === document.activeElement);
       const direction = event.shiftKey ? -1 : 1;
@@ -4557,7 +4671,7 @@ export class DesktopApp {
     if (
       !this.contextMenu ||
       this.ratioDialogTargetId ||
-      this.deleteConfirmResolve ||
+      this.confirmDialog ||
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
@@ -4809,7 +4923,7 @@ export class DesktopApp {
     this.invalidateContextOverlay();
     this.contextMenu = null;
     this.ratioDialogTargetId = null;
-    this.resolveDeleteConfirm(false);
+    this.resolveConfirmDialog(false);
     this.contextMenuLayer.classList.remove("is-open");
     this.contextMenuLayer.replaceChildren();
   }
@@ -4818,7 +4932,7 @@ export class DesktopApp {
     this.invalidateContextOverlay();
     this.contextMenu = null;
     this.ratioDialogTargetId = null;
-    this.resolveDeleteConfirm(false);
+    this.resolveConfirmDialog(false);
     this.contextMenuLayer.classList.remove("is-open");
     this.contextMenuLayer.replaceChildren();
     return this.contextOverlayVersion;
@@ -4832,14 +4946,14 @@ export class DesktopApp {
     return this.contextOverlayVersion === version;
   }
 
-  private resolveDeleteConfirm(confirmed: boolean) {
-    const resolve = this.deleteConfirmResolve;
-    if (!resolve) {
+  private resolveConfirmDialog(confirmed: boolean) {
+    const dialog = this.confirmDialog;
+    if (!dialog) {
       return;
     }
 
-    this.deleteConfirmResolve = null;
-    resolve(confirmed);
+    this.confirmDialog = null;
+    dialog.resolve(confirmed);
   }
 
   private pruneDetachedUiState() {
@@ -4893,9 +5007,9 @@ export class DesktopApp {
   private onGlobalPointerDown(event: PointerEvent) {
     const target = event.target as HTMLElement;
 
-    if (this.deleteConfirmResolve) {
-      if (!target.closest(".delete-confirm-dialog")) {
-        this.closeDeleteConfirm(false);
+    if (this.confirmDialog) {
+      if (!target.closest(".confirm-dialog")) {
+        this.closeConfirmDialog(false);
       }
       return;
     }
@@ -5091,7 +5205,7 @@ export class DesktopApp {
         this.renamingId ||
         this.renamingFolderChild ||
         this.editingFolder ||
-        this.deleteConfirmResolve ||
+        this.confirmDialog ||
         this.ratioDialogTargetId ||
         this.contextMenu ||
         this.settingsOpen
@@ -5304,7 +5418,7 @@ export class DesktopApp {
   }
 
   private async onWindowKeyDown(event: KeyboardEvent) {
-    if (this.handleDeleteConfirmKeyDown(event)) {
+    if (this.handleConfirmDialogKeyDown(event)) {
       return;
     }
 

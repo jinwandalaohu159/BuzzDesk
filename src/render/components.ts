@@ -7,7 +7,8 @@ import type {
   FolderAppearanceSettings,
   FolderNode,
   LayoutSlot,
-  SettingsView
+  SettingsView,
+  UpdateCheckState
 } from "../types";
 import type { FolderPanelSize } from "../layout/grid";
 import {
@@ -298,6 +299,7 @@ export function renderSettingsLayer(options: {
   contextMenuItems?: SettingsContextMenuItem[];
   contextMenuTitle?: string;
   contextMenuParentLabel?: string | null;
+  updateState: UpdateCheckState;
   animate?: boolean;
 }) {
   const { settings, view } = options;
@@ -362,7 +364,8 @@ export function renderSettingsLayer(options: {
       systemIconItems: options.systemIconItems ?? [],
       systemIconAddOpen: options.systemIconAddOpen === true,
       contextMenuItems: options.contextMenuItems ?? [],
-      contextMenuParentLabel: options.contextMenuParentLabel ?? null
+      contextMenuParentLabel: options.contextMenuParentLabel ?? null,
+      updateState: options.updateState
     })
   );
 
@@ -394,6 +397,7 @@ function renderSettingsControls(
     systemIconAddOpen: boolean;
     contextMenuItems: SettingsContextMenuItem[];
     contextMenuParentLabel: string | null;
+    updateState: UpdateCheckState;
   }
 ) {
   if (view === "layout") {
@@ -437,15 +441,143 @@ function renderSettingsControls(
     ),
     renderSettingsDarkModeControl(settings.settingsDarkMode),
     renderSettingsStartupControl(settings.startWithWindows),
-    renderAppPriorityControl(settings.appPriority)
+    renderAppPriorityControl(settings.appPriority),
+    renderSettingsUpdateControl(options.updateState)
   ];
 }
 
 function renderSettingsNavControl(label: string, detail: string, view: Exclude<SettingsView, "main">) {
+  const button = renderSettingsRowButton(label, detail);
+  button.dataset.settingsView = view;
+  return button;
+}
+
+function renderSettingsUpdateControl(updateState: UpdateCheckState) {
+  const row = document.createElement("section");
+  row.className = "settings-update-row";
+  row.classList.toggle("is-checking", updateState.status === "checking");
+
+  const title = document.createElement("div");
+  title.className = "settings-update-title";
+
+  const name = document.createElement("span");
+  name.textContent = "\u68c0\u6d4b\u66f4\u65b0";
+
+  const badge = document.createElement("span");
+  badge.className = "settings-update-badge";
+  badge.textContent = updateStatusLabel(updateState);
+
+  title.append(name, badge);
+
+  const versions = document.createElement("dl");
+  versions.className = "settings-update-versions";
+  versions.append(
+    renderVersionPair("\u5f53\u524d\u7248\u672c", formatVersion(updateState.currentVersion)),
+    renderVersionPair("\u6700\u65b0\u7248\u672c", latestVersionLabel(updateState))
+  );
+
+  const message = document.createElement("p");
+  message.className = "settings-update-message";
+  message.textContent = updateMessage(updateState);
+
+  const actions = document.createElement("div");
+  actions.className = "settings-update-actions";
+
+  const check = document.createElement("button");
+  check.type = "button";
+  check.className = "settings-update-check";
+  check.dataset.settingAction = "checkUpdates";
+  check.disabled = updateState.status === "checking";
+  check.textContent = updateState.status === "checking" ? "\u68c0\u6d4b\u4e2d" : "\u68c0\u6d4b\u66f4\u65b0";
+  actions.append(check);
+
+  if (updateState.status === "available") {
+    const update = document.createElement("button");
+    update.type = "button";
+    update.className = "settings-update-primary";
+    update.dataset.settingAction = "updateLatest";
+    update.textContent = "\u66f4\u65b0\u5230\u6700\u65b0\u7248\u672c";
+    actions.append(update);
+  }
+
+  row.append(title, versions, message, actions);
+  return row;
+}
+
+function renderVersionPair(label: string, value: string) {
+  const fragment = document.createDocumentFragment();
+
+  const term = document.createElement("dt");
+  term.textContent = label;
+
+  const description = document.createElement("dd");
+  description.textContent = value;
+
+  fragment.append(term, description);
+  return fragment;
+}
+
+function latestVersionLabel(updateState: UpdateCheckState) {
+  if (updateState.status === "idle") {
+    return "\u672a\u68c0\u6d4b";
+  }
+
+  if (updateState.status === "checking") {
+    return "\u68c0\u6d4b\u4e2d...";
+  }
+
+  return updateState.latestVersion ? formatVersion(updateState.latestVersion) : "\u672a\u77e5";
+}
+
+function updateStatusLabel(updateState: UpdateCheckState) {
+  if (updateState.status === "checking") {
+    return "\u68c0\u6d4b\u4e2d";
+  }
+
+  if (updateState.status === "available") {
+    return "\u53ef\u66f4\u65b0";
+  }
+
+  if (updateState.status === "current") {
+    return "\u5df2\u662f\u6700\u65b0";
+  }
+
+  if (updateState.status === "error") {
+    return "\u68c0\u6d4b\u5931\u8d25";
+  }
+
+  return "\u672a\u68c0\u6d4b";
+}
+
+function updateMessage(updateState: UpdateCheckState) {
+  if (updateState.status === "checking") {
+    return "\u6b63\u5728\u8fde\u63a5 GitHub Releases...";
+  }
+
+  if (updateState.status === "available") {
+    return "\u68c0\u6d4b\u5230\u65b0\u7248\u672c\uff0c\u53ef\u4ee5\u524d\u5f80 release \u9875\u9762\u83b7\u53d6\u5b89\u88c5\u5305\u3002";
+  }
+
+  if (updateState.status === "current") {
+    return "\u5f53\u524d\u5df2\u7ecf\u662f\u6700\u65b0\u7248\u672c\u3002";
+  }
+
+  if (updateState.status === "error") {
+    return updateState.error ?? "\u6682\u65f6\u65e0\u6cd5\u68c0\u6d4b\u66f4\u65b0\u3002";
+  }
+
+  return "\u70b9\u51fb\u68c0\u6d4b\u540e\uff0c\u4f1a\u663e\u793a GitHub Releases \u4e0a\u7684\u6700\u65b0\u7248\u672c\u3002";
+}
+
+function formatVersion(version: string) {
+  const normalized = version.trim();
+  return normalized ? `v${normalized.replace(/^v/i, "")}` : "\u672a\u77e5";
+}
+
+function renderSettingsRowButton(label: string, detail: string) {
   const button = document.createElement("button");
   button.className = "settings-nav-row";
   button.type = "button";
-  button.dataset.settingsView = view;
 
   const text = document.createElement("span");
   text.className = "settings-nav-text";
@@ -1319,15 +1451,43 @@ export function renderRatioDialog(options: {
   return dialog;
 }
 
+interface ConfirmDialogOptions {
+  variant: "delete" | "update";
+  title: string;
+  name: string;
+  message: string;
+  confirmLabel: string;
+}
+
 export function renderDeleteConfirmDialog(itemName: string) {
+  return renderConfirmDialog({
+    variant: "delete",
+    title: "\u5220\u9664\u9879\u76ee",
+    name: `\u201c${itemName}\u201d`,
+    message: "\u5c06\u79fb\u5230\u56de\u6536\u7ad9\uff0c\u53ef\u4ee5\u5728\u56de\u6536\u7ad9\u4e2d\u8fd8\u539f\u3002",
+    confirmLabel: "\u5220\u9664"
+  });
+}
+
+export function renderUpdateConfirmDialog(currentVersion: string, latestVersion: string) {
+  return renderConfirmDialog({
+    variant: "update",
+    title: "\u66f4\u65b0 BuzzDesk",
+    name: `${formatVersion(currentVersion)} \u2192 ${formatVersion(latestVersion)}`,
+    message: "\u5c06\u6253\u5f00 GitHub Releases \u9875\u9762\uff0c\u4e0b\u8f7d\u6700\u65b0\u5b89\u88c5\u5305\u540e\u8fdb\u884c\u66f4\u65b0\u3002",
+    confirmLabel: "\u524d\u5f80\u66f4\u65b0"
+  });
+}
+
+function renderConfirmDialog(options: ConfirmDialogOptions) {
   const backdrop = document.createElement("div");
   backdrop.className = "delete-confirm-backdrop";
 
   const dialog = document.createElement("section");
-  dialog.className = "delete-confirm-dialog";
+  dialog.className = `delete-confirm-dialog confirm-dialog is-${options.variant}-confirm`;
   dialog.setAttribute("role", "dialog");
   dialog.setAttribute("aria-modal", "true");
-  dialog.setAttribute("aria-labelledby", "delete-confirm-title");
+  dialog.setAttribute("aria-labelledby", "confirm-dialog-title");
 
   const icon = document.createElement("div");
   icon.className = "delete-confirm-icon";
@@ -1337,15 +1497,15 @@ export function renderDeleteConfirmDialog(itemName: string) {
   body.className = "delete-confirm-body";
 
   const title = document.createElement("h2");
-  title.id = "delete-confirm-title";
-  title.textContent = "\u5220\u9664\u9879\u76ee";
+  title.id = "confirm-dialog-title";
+  title.textContent = options.title;
 
   const name = document.createElement("div");
   name.className = "delete-confirm-name";
-  name.textContent = `\u201c${itemName}\u201d`;
+  name.textContent = options.name;
 
   const message = document.createElement("p");
-  message.textContent = "\u5c06\u79fb\u5230\u56de\u6536\u7ad9\uff0c\u53ef\u4ee5\u5728\u56de\u6536\u7ad9\u4e2d\u8fd8\u539f\u3002";
+  message.textContent = options.message;
 
   body.append(title, name, message);
 
@@ -1355,14 +1515,16 @@ export function renderDeleteConfirmDialog(itemName: string) {
   const cancel = document.createElement("button");
   cancel.type = "button";
   cancel.className = "delete-confirm-cancel";
+  cancel.dataset.confirmCancel = "true";
   cancel.dataset.deleteCancel = "true";
   cancel.textContent = "\u53d6\u6d88";
 
   const confirm = document.createElement("button");
   confirm.type = "button";
   confirm.className = "delete-confirm-confirm";
+  confirm.dataset.confirmAccept = "true";
   confirm.dataset.deleteConfirm = "true";
-  confirm.textContent = "\u5220\u9664";
+  confirm.textContent = options.confirmLabel;
 
   actions.append(cancel, confirm);
   dialog.append(icon, body, actions);

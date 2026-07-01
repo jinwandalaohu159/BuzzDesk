@@ -18,6 +18,7 @@ const TRAY_RESTORE_NATIVE_ICONS_ID: &str = "restore_native_desktop_icons";
 const TRAY_QUIT_ID: &str = "quit";
 const DESKTOP_STATE_FILE_NAME: &str = "desktop-state.json";
 const STARTUP_LOG_FILE_NAME: &str = "buzzdesk-startup.log";
+const UPDATE_RELEASE_URL: &str = "https://github.com/jinwandalaohu159/BuzzDesk/releases/latest";
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(rename_all = "camelCase")]
@@ -204,6 +205,16 @@ fn get_startup_enabled() -> bool {
 #[tauri::command]
 fn set_startup_enabled(enabled: bool) -> Result<(), String> {
     platform::set_startup_enabled(enabled)
+}
+
+#[tauri::command]
+fn open_update_release_page(url: Option<String>) -> Result<(), String> {
+    let release_url = url.as_deref().unwrap_or(UPDATE_RELEASE_URL);
+    if !release_url.starts_with("https://github.com/jinwandalaohu159/BuzzDesk/releases") {
+        return Err("unsupported update release url".to_string());
+    }
+
+    platform::open_update_release_page(release_url)
 }
 
 #[tauri::command]
@@ -459,6 +470,7 @@ pub fn run() {
             set_app_process_priority,
             get_startup_enabled,
             set_startup_enabled,
+            open_update_release_page,
             show_native_item_context_menu,
             list_native_desktop_context_menu,
             invoke_native_desktop_context_menu_command,
@@ -643,6 +655,10 @@ mod platform {
     }
 
     pub fn set_startup_enabled(_enabled: bool) -> Result<(), String> {
+        Ok(())
+    }
+
+    pub fn open_update_release_page(_url: &str) -> Result<(), String> {
         Ok(())
     }
 
@@ -1016,6 +1032,31 @@ mod platform {
 
     pub fn open_desktop_item(launch_id: &str) -> Result<(), String> {
         shell_execute_launch_id(launch_id, "open")
+    }
+
+    pub fn open_update_release_page(url: &str) -> Result<(), String> {
+        let wide = to_wide(url);
+        let operation = to_wide("open");
+
+        let result = unsafe {
+            ShellExecuteW(
+                None,
+                PCWSTR(operation.as_ptr()),
+                PCWSTR(wide.as_ptr()),
+                PCWSTR::null(),
+                PCWSTR::null(),
+                SW_SHOWNORMAL,
+            )
+        };
+
+        if result.0 as isize > 32 {
+            Ok(())
+        } else {
+            Err(format!(
+                "ShellExecuteW open failed for update release page: code {}",
+                result.0 as isize
+            ))
+        }
     }
 
     fn shell_execute_launch_id(launch_id: &str, verb: &str) -> Result<(), String> {
