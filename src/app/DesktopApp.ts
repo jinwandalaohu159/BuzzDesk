@@ -326,6 +326,7 @@ export class DesktopApp {
   private cachedDesktopNativeMenuItems: NativeContextMenuItem[] | null = null;
   private desktopNativeMenuLoad: Promise<NativeContextMenuItem[]> | null = null;
   private updateCheckRequestId = 0;
+  private updateCheckInFlight = false;
   private updateCheckState: UpdateCheckState = {
     status: "idle",
     currentVersion: currentAppVersion,
@@ -3700,17 +3701,27 @@ export class DesktopApp {
   }
 
   private async checkForUpdates() {
+    if (this.updateCheckInFlight) {
+      return;
+    }
+
     const requestId = this.updateCheckRequestId + 1;
+    const showCheckingState =
+      this.updateCheckState.status === "idle" || this.updateCheckState.status === "error";
     this.updateCheckRequestId = requestId;
-    this.updateCheckState = {
-      ...this.updateCheckState,
-      status: "checking",
-      currentVersion: currentAppVersion,
-      latestVersion: null,
-      releaseUrl: null,
-      error: null
-    };
-    this.renderSettingsLayer();
+    this.updateCheckInFlight = true;
+
+    if (showCheckingState) {
+      this.updateCheckState = {
+        ...this.updateCheckState,
+        status: "checking",
+        currentVersion: currentAppVersion,
+        latestVersion: null,
+        releaseUrl: null,
+        error: null
+      };
+      this.renderSettingsLayer();
+    }
 
     try {
       const result = await checkForUpdateRelease();
@@ -3718,7 +3729,7 @@ export class DesktopApp {
         return;
       }
 
-      this.updateCheckState = {
+      const nextState: UpdateCheckState = {
         status: result.hasUpdate ? "available" : "current",
         currentVersion: result.currentVersion,
         latestVersion: result.latestVersion,
@@ -3726,23 +3737,39 @@ export class DesktopApp {
         error: null,
         checkedAt: Date.now()
       };
+      const shouldRender =
+        this.updateCheckState.status !== nextState.status ||
+        this.updateCheckState.currentVersion !== nextState.currentVersion ||
+        this.updateCheckState.latestVersion !== nextState.latestVersion ||
+        this.updateCheckState.releaseUrl !== nextState.releaseUrl ||
+        this.updateCheckState.error !== nextState.error;
+
+      this.updateCheckState = nextState;
+      if (shouldRender) {
+        this.renderSettingsLayer();
+      }
     } catch (error) {
       if (requestId !== this.updateCheckRequestId) {
         return;
       }
 
       console.warn("Unable to check for updates", error);
-      this.updateCheckState = {
-        ...this.updateCheckState,
-        status: "error",
-        latestVersion: null,
-        releaseUrl: null,
-        error: "\u6682\u65f6\u65e0\u6cd5\u8fde\u63a5 GitHub Releases\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
-        checkedAt: Date.now()
-      };
+      if (showCheckingState) {
+        this.updateCheckState = {
+          ...this.updateCheckState,
+          status: "error",
+          latestVersion: null,
+          releaseUrl: null,
+          error: "\u6682\u65f6\u65e0\u6cd5\u8fde\u63a5 GitHub Releases\uff0c\u8bf7\u7a0d\u540e\u91cd\u8bd5\u3002",
+          checkedAt: Date.now()
+        };
+        this.renderSettingsLayer();
+      }
+    } finally {
+      if (requestId === this.updateCheckRequestId) {
+        this.updateCheckInFlight = false;
+      }
     }
-
-    this.renderSettingsLayer();
   }
 
   private async confirmAndOpenLatestUpdate() {
