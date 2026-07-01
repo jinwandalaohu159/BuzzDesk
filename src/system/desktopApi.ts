@@ -11,6 +11,23 @@ import { applyCachedIcons, rememberIconImages } from "./iconCache";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
 
+const updateReleaseUrl = "https://github.com/jinwandalaohu159/BuzzDesk/releases/latest";
+const updateReleaseApiUrl = "https://api.github.com/repos/jinwandalaohu159/BuzzDesk/releases/latest";
+export const currentAppVersion = __APP_VERSION__;
+
+interface GitHubReleaseResponse {
+  tag_name?: string;
+  html_url?: string;
+  name?: string | null;
+}
+
+export interface UpdateReleaseCheckResult {
+  currentVersion: string;
+  latestVersion: string;
+  hasUpdate: boolean;
+  releaseUrl: string;
+}
+
 let cachedInvoke: Invoke | null | undefined;
 
 async function getInvoke(): Promise<Invoke | null> {
@@ -335,6 +352,88 @@ export async function setStartupEnabled(enabled: boolean) {
   }
 
   await invoke("set_startup_enabled", { enabled });
+}
+
+export async function checkForUpdateRelease(): Promise<UpdateReleaseCheckResult> {
+  const response = await fetch(updateReleaseApiUrl, {
+    headers: {
+      Accept: "application/vnd.github+json"
+    }
+  });
+
+  if (!response.ok) {
+    throw new Error(`GitHub release check failed: ${response.status}`);
+  }
+
+  const release = (await response.json()) as GitHubReleaseResponse;
+  const latestVersion = normalizeVersionTag(release.tag_name ?? release.name ?? "");
+  if (!latestVersion) {
+    throw new Error("GitHub latest release does not contain a version tag");
+  }
+
+  return {
+    currentVersion: currentAppVersion,
+    latestVersion,
+    hasUpdate: compareVersions(latestVersion, currentAppVersion) > 0,
+    releaseUrl: release.html_url ?? updateReleaseUrl
+  };
+}
+
+export async function openUpdateReleasePage(url = updateReleaseUrl) {
+  if (!hasTauriRuntime()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  const invoke = await getInvoke();
+  if (!invoke) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  try {
+    await invoke("open_update_release_page", { url });
+  } catch (error) {
+    console.warn("Unable to open update release page", error);
+    window.open(url, "_blank", "noopener,noreferrer");
+  }
+}
+
+function normalizeVersionTag(value: string) {
+  return value.trim().replace(/^v/i, "");
+}
+
+function compareVersions(left: string, right: string) {
+  const a = parseVersion(left);
+  const b = parseVersion(right);
+
+  for (let index = 0; index < Math.max(a.numbers.length, b.numbers.length, 3); index += 1) {
+    const difference = (a.numbers[index] ?? 0) - (b.numbers[index] ?? 0);
+    if (difference !== 0) {
+      return difference;
+    }
+  }
+
+  if (a.prerelease && !b.prerelease) {
+    return -1;
+  }
+
+  if (!a.prerelease && b.prerelease) {
+    return 1;
+  }
+
+  return a.prerelease.localeCompare(b.prerelease);
+}
+
+function parseVersion(value: string) {
+  const [core, prerelease = ""] = normalizeVersionTag(value).split("-", 2);
+  return {
+    numbers: core.split(".").map((part) => {
+      const number = Number.parseInt(part, 10);
+      return Number.isFinite(number) ? number : 0;
+    }),
+    prerelease
+  };
 }
 
 function toAppNode(item: DesktopSourceItem): AppNode {

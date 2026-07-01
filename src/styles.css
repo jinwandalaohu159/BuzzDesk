@@ -706,6 +706,103 @@ input {
   font-size: 12px;
 }
 
+.settings-update-row {
+  display: grid;
+  gap: 10px;
+  padding: 15px 0;
+  border-top: 1px solid var(--settings-divider);
+}
+
+.settings-update-title {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  color: var(--settings-title-text);
+  font-size: 14px;
+  font-weight: 650;
+}
+
+.settings-update-badge {
+  flex: 0 0 auto;
+  border-radius: 999px;
+  padding: 4px 9px;
+  color: var(--settings-muted-text);
+  font-size: 11px;
+  font-weight: 650;
+  background: var(--settings-control-bg);
+}
+
+.settings-update-versions {
+  display: grid;
+  grid-template-columns: minmax(70px, auto) minmax(0, 1fr);
+  gap: 7px 12px;
+  margin: 0;
+  color: var(--settings-muted-text);
+  font-size: 12px;
+  line-height: 1.35;
+}
+
+.settings-update-versions dt,
+.settings-update-versions dd {
+  margin: 0;
+}
+
+.settings-update-versions dd {
+  color: var(--settings-title-text);
+  font-weight: 600;
+}
+
+.settings-update-message {
+  margin: 0;
+  color: var(--settings-muted-text);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.settings-update-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.settings-update-check,
+.settings-update-primary {
+  min-height: 32px;
+  border: 0;
+  border-radius: 9px;
+  padding: 0 12px;
+  font: inherit;
+  font-size: 12px;
+  font-weight: 650;
+  cursor: pointer;
+}
+
+.settings-update-check {
+  color: var(--settings-panel-text);
+  background: var(--settings-control-bg);
+}
+
+.settings-update-check:hover {
+  background: var(--settings-control-hover-bg);
+}
+
+.settings-update-check:disabled {
+  cursor: default;
+  opacity: 0.62;
+}
+
+.settings-update-primary {
+  color: white;
+  background: linear-gradient(180deg, rgba(57, 136, 255, 0.95), rgba(20, 91, 218, 0.95));
+  box-shadow: 0 10px 22px rgba(26, 103, 216, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.settings-update-primary:hover {
+  background: linear-gradient(180deg, rgba(76, 149, 255, 0.98), rgba(31, 105, 228, 0.98));
+}
+
 .settings-priority-select {
   position: relative;
   display: block;
@@ -1391,6 +1488,8 @@ input {
 .settings-slider:focus-visible,
 .settings-priority-trigger:focus-visible,
 .settings-priority-popover button:focus-visible,
+.settings-update-check:focus-visible,
+.settings-update-primary:focus-visible,
 .settings-toggle:focus-visible,
 .settings-nav-row:focus-visible,
 .settings-back:focus-visible {
@@ -2028,6 +2127,34 @@ input {
   border-radius: 2px 2px 5px 5px;
 }
 
+.confirm-dialog.is-update-confirm .delete-confirm-icon {
+  background: rgba(57, 136, 255, 0.18);
+  box-shadow: inset 0 0 0 1px rgba(132, 181, 255, 0.28);
+}
+
+.confirm-dialog.is-update-confirm .delete-confirm-icon::before {
+  left: 13px;
+  right: 13px;
+  top: 12px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(235, 244, 255, 0.94);
+  box-shadow: none;
+}
+
+.confirm-dialog.is-update-confirm .delete-confirm-icon::after {
+  left: 12px;
+  top: 18px;
+  width: 14px;
+  height: 14px;
+  bottom: auto;
+  border-right: 4px solid rgba(235, 244, 255, 0.94);
+  border-bottom: 4px solid rgba(235, 244, 255, 0.94);
+  border-radius: 2px;
+  background: transparent;
+  transform: rotate(45deg);
+}
+
 .delete-confirm-body {
   min-width: 0;
   display: grid;
@@ -2102,6 +2229,16 @@ input {
 .delete-confirm-confirm:hover,
 .delete-confirm-confirm:focus-visible {
   background: linear-gradient(180deg, rgba(255, 128, 128, 0.98), rgba(226, 67, 67, 0.98));
+}
+
+.confirm-dialog.is-update-confirm .delete-confirm-confirm {
+  background: linear-gradient(180deg, rgba(57, 136, 255, 0.95), rgba(20, 91, 218, 0.95));
+  box-shadow: 0 10px 24px rgba(26, 103, 216, 0.28), inset 0 1px 0 rgba(255, 255, 255, 0.22);
+}
+
+.confirm-dialog.is-update-confirm .delete-confirm-confirm:hover,
+.confirm-dialog.is-update-confirm .delete-confirm-confirm:focus-visible {
+  background: linear-gradient(180deg, rgba(76, 149, 255, 0.98), rgba(31, 105, 228, 0.98));
 }
 
 .delete-confirm-cancel:focus-visible,
