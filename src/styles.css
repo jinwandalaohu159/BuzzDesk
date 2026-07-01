@@ -191,13 +191,10 @@ input {
   cursor: grabbing;
 }
 
-<<<<<<< HEAD
-=======
 .desktop-tile.is-reorder-preview {
   transition: transform 245ms cubic-bezier(.18,.86,.24,1);
 }
 
->>>>>>> master
 .desktop-tile.is-folder-open {
   pointer-events: none;
 }

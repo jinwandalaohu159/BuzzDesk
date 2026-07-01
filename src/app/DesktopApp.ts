@@ -98,15 +98,12 @@ const folderPagerHeight = 30;
 const dragStartDistancePx = 7;
 const mergeIntentDelayMs = 400;
 const trashIntentDelayMs = 30;
-<<<<<<< HEAD
-=======
 const reorderPreviewDelayMs = 60;
 const reorderPreviewMoveTolerancePx = 20;
 const reorderPreviewSettleMs = 270;
 const reorderVisualPaddingX = 6;
 const reorderVisualPaddingY = 5;
 const freeReorderOverlapMarginPx = 2;
->>>>>>> master
 
 // Owns desktop interaction orchestration; visual rendering, layout math, state
 // mutation, and platform calls stay in their own modules.
@@ -169,8 +166,6 @@ interface DragTargetSnapshot {
   hitRect: Rect;
 }
 
-<<<<<<< HEAD
-=======
 interface DragReorderIntent {
   key: string;
   startX: number;
@@ -205,7 +200,6 @@ interface FreeReorderPlan {
   positions: Array<{ id: string; position: DesktopPosition }>;
 }
 
->>>>>>> master
 interface Rect {
   left: number;
   top: number;
@@ -311,14 +305,11 @@ export class DesktopApp {
   private fullDesktopLoadScheduled = false;
   private fullDesktopLoadInFlight = false;
   private drag: ActiveDrag | null = null;
-<<<<<<< HEAD
-=======
   private dragReorderIntent: DragReorderIntent | null = null;
   private dragReorderActiveKey: string | null = null;
   private dragReorderPreviewIds = new Set<string>();
   private dragReorderFreePlan: FreeReorderPlan | null = null;
   private dragReorderWakeTimer: number | null = null;
->>>>>>> master
   private folderSwipe: FolderSwipe | null = null;
   private marquee: MarqueeSelection | null = null;
   private suppressNextClick = false;
@@ -1967,10 +1958,7 @@ export class DesktopApp {
       active.frame = null;
       const didAutoScroll = this.autoScrollDrag(active);
       if (didAutoScroll) {
-<<<<<<< HEAD
-=======
         this.clearDragReorderPreview();
->>>>>>> master
         active.targetSnapshots = this.captureMergeTargets(active);
         active.targetRect = null;
         this.clearMergeCandidate(active);
@@ -1979,10 +1967,7 @@ export class DesktopApp {
       if (this.isDesktopGroupDrag(active)) {
         this.updateDesktopGroupDragFrame(active);
         this.updateMergeTarget(active.currentX, active.currentY);
-<<<<<<< HEAD
-=======
         this.updateDragReorderPreview(active);
->>>>>>> master
         if (didAutoScroll && this.drag === active) {
           this.scheduleDragFrame();
         }
@@ -2011,10 +1996,7 @@ export class DesktopApp {
         this.writeMergePull(active, transform.targetPullX, transform.targetPullY);
       }
       this.writeDragTransform(active, toTransformStyle(transform));
-<<<<<<< HEAD
-=======
       this.updateDragReorderPreview(active);
->>>>>>> master
 
       if (didAutoScroll && this.drag === active) {
         this.scheduleDragFrame();
@@ -2045,8 +2027,6 @@ export class DesktopApp {
     });
   }
 
-<<<<<<< HEAD
-=======
   private updateDragReorderPreview(drag: ActiveDrag) {
     if (
       !drag.started ||
@@ -2483,7 +2463,6 @@ export class DesktopApp {
     }
   }
 
->>>>>>> master
   private autoScrollDrag(drag: ActiveDrag) {
     const delta = dragAutoScrollDelta(
       drag.currentX,
@@ -2509,36 +2488,6 @@ export class DesktopApp {
   }
 
   private commitFreeDesktopDrag(drag: ActiveDrag) {
-<<<<<<< HEAD
-    let dx = drag.currentX - drag.startX + this.root.scrollLeft - drag.startScrollLeft;
-    let dy = drag.currentY - drag.startY + this.root.scrollTop - drag.startScrollTop;
-    const viewport = desktopViewport();
-    const movedItems =
-      this.isDesktopGroupDrag(drag)
-        ? drag.groupItems
-        : [{
-            id: drag.source.type === "desktop" ? drag.source.nodeId : "",
-            baseX: drag.baseX,
-            baseY: drag.baseY,
-            width: drag.width,
-            height: drag.height
-          }];
-
-    if (movedItems.length > 1) {
-      const minX = Math.min(...movedItems.map((item) => item.baseX - viewport.offsetX));
-      const minY = Math.min(...movedItems.map((item) => item.baseY - viewport.offsetY));
-      const maxX = Math.max(...movedItems.map((item) => item.baseX - viewport.offsetX + item.width));
-      const maxY = Math.max(...movedItems.map((item) => item.baseY - viewport.offsetY + item.height));
-      const metrics = desktopTileMetrics(this.store.getSettings());
-      dx = clampScroll(dx, metrics.paddingX - minX, viewport.width - metrics.paddingX - maxX);
-      dy = clampScroll(dy, metrics.paddingY - minY, viewport.height - metrics.paddingY - maxY);
-    }
-
-    const positions = movedItems.length > 1
-      ? this.resolveFreeGroupPositions(movedItems, dx, dy)
-      : movedItems
-          .filter((item) => item.id)
-=======
     const reorderPlan = this.activeFreeReorderPlan(drag);
     if (reorderPlan) {
       return this.store.updateNodePositions(reorderPlan.positions);
@@ -2554,7 +2503,6 @@ export class DesktopApp {
     const positions = movedItems.length > 1
       ? this.resolveFreeGroupPositions(movedItems, dx, dy)
       : movedItems
->>>>>>> master
           .map((item) => ({
             id: item.id,
             position: this.findOpenDesktopPosition(
@@ -2577,8 +2525,6 @@ export class DesktopApp {
     return this.store.updateNodePositions(positions);
   }
 
-<<<<<<< HEAD
-=======
   private freeDragMovedItems(
     drag: ActiveDrag
   ): Array<Pick<DragGroupItem, "id" | "baseX" | "baseY" | "width" | "height">> {
@@ -2636,7 +2582,6 @@ export class DesktopApp {
     return this.dragReorderFreePlan ?? candidate.freePlan;
   }
 
->>>>>>> master
   private clampedDesktopPosition(
     x: number,
     y: number,
@@ -2906,8 +2851,6 @@ export class DesktopApp {
       }));
   }
 
-<<<<<<< HEAD
-=======
   private freeDesktopLayoutRects(excludeIds: ReadonlySet<string>): FreeReorderRect[] {
     const viewport = desktopViewport();
     return this.store.getNodes()
@@ -2930,7 +2873,6 @@ export class DesktopApp {
       .filter((rect): rect is FreeReorderRect => Boolean(rect));
   }
 
->>>>>>> master
   private promoteFolderDrag(drag: ActiveDrag) {
     if (drag.source.type !== "folder") {
       return;
@@ -3157,10 +3099,7 @@ export class DesktopApp {
 
     if (targetId) {
       this.clearMergeCandidate(drag);
-<<<<<<< HEAD
-=======
       this.clearDragReorderPreview();
->>>>>>> master
     }
 
     if (drag.targetId === targetId) {
@@ -3448,10 +3387,7 @@ export class DesktopApp {
 
   private clearDragVisualState(drag: ActiveDrag) {
     this.root.classList.remove("is-drag-active");
-<<<<<<< HEAD
-=======
     this.clearDragReorderPreview();
->>>>>>> master
 
     if (this.isDesktopGroupDrag(drag)) {
       drag.groupItems.forEach((item) => {
@@ -6105,8 +6041,6 @@ function clampScroll(value: number, min: number, max: number) {
   return Math.min(Math.max(min, max), Math.max(min, value));
 }
 
-<<<<<<< HEAD
-=======
 function clampIndex(index: number, length: number) {
   return Math.min(length, Math.max(0, index));
 }
@@ -6133,7 +6067,6 @@ function nearestMovingRectDistance(rect: FreeReorderRect, movingRects: FreeReord
   );
 }
 
->>>>>>> master
 function normalizedRect(startX: number, startY: number, currentX: number, currentY: number): Rect {
   const left = Math.min(startX, currentX);
   const top = Math.min(startY, currentY);
