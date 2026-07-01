@@ -1092,13 +1092,14 @@ mod platform {
 
         let wide_path = to_wide(&installer_path.to_string_lossy());
         let operation = to_wide("open");
+        let params = to_wide("/S");
 
         let result = unsafe {
             ShellExecuteW(
                 None,
                 PCWSTR(operation.as_ptr()),
                 PCWSTR(wide_path.as_ptr()),
-                PCWSTR::null(),
+                PCWSTR(params.as_ptr()),
                 PCWSTR::null(),
                 SW_SHOWNORMAL,
             )
