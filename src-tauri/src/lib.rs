@@ -1090,18 +1090,39 @@ mod platform {
 
         drop(file);
 
-        let wide_path = to_wide(&installer_path.to_string_lossy());
+        let exe_path = std::env::current_exe()
+            .map_err(|error| format!("failed to resolve current executable: {error}"))?;
+        let exe_dir = exe_path
+            .parent()
+            .and_then(|parent| parent.to_str())
+            .unwrap_or(".");
+
+        let bat_path = temp_dir.join("buzzdesk-update.bat");
+        let bat_content = format!(
+            "@echo off\r\n\
+             timeout /t 2 /nobreak >nul\r\n\
+             \"{}\" /S\r\n\
+             timeout /t 2 /nobreak >nul\r\n\
+             start \"\" /D \"{}\" \"{}\"\r\n",
+            installer_path.display(),
+            exe_dir,
+            exe_path.display()
+        );
+
+        std::fs::write(&bat_path, bat_content)
+            .map_err(|error| format!("failed to write update script: {error}"))?;
+
+        let wide_bat = to_wide(&bat_path.to_string_lossy());
         let operation = to_wide("open");
-        let params = to_wide("/S");
 
         let result = unsafe {
             ShellExecuteW(
                 None,
                 PCWSTR(operation.as_ptr()),
-                PCWSTR(wide_path.as_ptr()),
-                PCWSTR(params.as_ptr()),
+                PCWSTR(wide_bat.as_ptr()),
                 PCWSTR::null(),
-                SW_SHOWNORMAL,
+                PCWSTR::null(),
+                SW_HIDE,
             )
         };
 
@@ -1109,7 +1130,7 @@ mod platform {
             Ok(())
         } else {
             Err(format!(
-                "ShellExecuteW launch installer failed: code {}",
+                "ShellExecuteW launch update script failed: code {}",
                 result.0 as isize
             ))
         }
