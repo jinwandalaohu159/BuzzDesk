@@ -735,11 +735,11 @@ input {
 
 .settings-update-versions {
   display: grid;
-  grid-template-columns: minmax(70px, auto) minmax(0, 1fr);
-  gap: 7px 12px;
+  grid-template-columns: max-content max-content;
+  gap: 7px 14px;
   margin: 0;
   color: var(--settings-muted-text);
-  font-size: 12px;
+  font-size: 13px;
   line-height: 1.35;
 }
 
@@ -750,10 +750,20 @@ input {
 
 .settings-update-versions dd {
   color: var(--settings-title-text);
+  font-size: 14px;
   font-weight: 600;
 }
 
+.settings-update-footer {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
 .settings-update-message {
+  flex: 1 1 180px;
   margin: 0;
   color: var(--settings-muted-text);
   font-size: 12px;
@@ -762,6 +772,7 @@ input {
 
 .settings-update-actions {
   display: flex;
+  flex: 0 0 auto;
   justify-content: flex-end;
   gap: 8px;
   flex-wrap: wrap;

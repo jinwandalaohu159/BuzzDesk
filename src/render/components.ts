@@ -486,13 +486,16 @@ function renderSettingsUpdateControl(updateState: UpdateCheckState) {
   const versions = document.createElement("dl");
   versions.className = "settings-update-versions";
   versions.append(
-    renderVersionPair("\u5f53\u524d\u7248\u672c", formatVersion(updateState.currentVersion)),
-    renderVersionPair("\u6700\u65b0\u7248\u672c", latestVersionLabel(updateState))
+    renderVersionPair("\u5f53\u524d\u7248\u672c:", formatVersion(updateState.currentVersion)),
+    renderVersionPair("\u6700\u65b0\u7248\u672c:", latestVersionLabel(updateState))
   );
 
   const message = document.createElement("p");
   message.className = "settings-update-message";
   message.textContent = updateMessage(updateState);
+
+  const footer = document.createElement("div");
+  footer.className = "settings-update-footer";
 
   const actions = document.createElement("div");
   actions.className = "settings-update-actions";
@@ -514,7 +517,8 @@ function renderSettingsUpdateControl(updateState: UpdateCheckState) {
     actions.append(update);
   }
 
-  row.append(title, versions, message, actions);
+  footer.append(message, actions);
+  row.append(title, versions, footer);
   return row;
 }
 
