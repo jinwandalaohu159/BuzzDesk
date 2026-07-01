@@ -1,3 +1,4 @@
+// BuzzDesk — A glass desktop overlay with virtual folders. Built with Tauri 2.
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
