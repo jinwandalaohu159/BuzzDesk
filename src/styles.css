@@ -191,6 +191,10 @@ input {
   cursor: grabbing;
 }
 
+.desktop-tile.is-reorder-preview {
+  transition: transform 245ms cubic-bezier(.18,.86,.24,1);
+}
+
 .desktop-tile.is-folder-open {
   pointer-events: none;
 }
