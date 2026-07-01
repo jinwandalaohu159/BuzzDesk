@@ -1,4 +1,5 @@
 // BuzzDesk — A glass desktop overlay with virtual folders. Built with Tauri 2.
+// Update flow: check GitHub Releases → download NSIS installer → silent install via /S flag.
 use serde::{Deserialize, Serialize};
 use std::{
     fs::{self, OpenOptions},
