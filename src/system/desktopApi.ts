@@ -19,6 +19,12 @@ interface GitHubReleaseResponse {
   tag_name?: string;
   html_url?: string;
   name?: string | null;
+  assets?: GitHubReleaseAsset[];
+}
+
+interface GitHubReleaseAsset {
+  name?: string;
+  browser_download_url?: string;
 }
 
 export interface UpdateReleaseCheckResult {
@@ -26,6 +32,8 @@ export interface UpdateReleaseCheckResult {
   latestVersion: string;
   hasUpdate: boolean;
   releaseUrl: string;
+  installerUrl: string | null;
+  installerName: string | null;
 }
 
 let cachedInvoke: Invoke | null | undefined;
@@ -370,13 +378,32 @@ export async function checkForUpdateRelease(): Promise<UpdateReleaseCheckResult>
   if (!latestVersion) {
     throw new Error("GitHub latest release does not contain a version tag");
   }
+  const installer = findReleaseInstaller(release.assets);
 
   return {
     currentVersion: currentAppVersion,
     latestVersion,
     hasUpdate: compareVersions(latestVersion, currentAppVersion) > 0,
-    releaseUrl: release.html_url ?? updateReleaseUrl
+    releaseUrl: release.html_url ?? updateReleaseUrl,
+    installerUrl: installer?.browser_download_url ?? null,
+    installerName: installer?.name ?? null
   };
+}
+
+function findReleaseInstaller(assets: GitHubReleaseAsset[] | undefined) {
+  if (!assets) {
+    return null;
+  }
+
+  return (
+    assets.find((asset) => isWindowsInstallerAsset(asset, /setup\.exe$/i)) ??
+    assets.find((asset) => isWindowsInstallerAsset(asset, /\.exe$/i)) ??
+    null
+  );
+}
+
+function isWindowsInstallerAsset(asset: GitHubReleaseAsset, pattern: RegExp) {
+  return Boolean(asset.name?.match(pattern) && asset.browser_download_url);
 }
 
 export async function openUpdateReleasePage(url = updateReleaseUrl) {
@@ -397,6 +424,21 @@ export async function openUpdateReleasePage(url = updateReleaseUrl) {
     console.warn("Unable to open update release page", error);
     window.open(url, "_blank", "noopener,noreferrer");
   }
+}
+
+export async function downloadAndLaunchUpdateInstaller(url: string, fileName: string) {
+  if (!hasTauriRuntime()) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  const invoke = await getInvoke();
+  if (!invoke) {
+    window.open(url, "_blank", "noopener,noreferrer");
+    return;
+  }
+
+  await invoke("download_and_launch_update_installer", { url, fileName });
 }
 
 function normalizeVersionTag(value: string) {

@@ -51,6 +51,9 @@ export interface UpdateCheckState {
   currentVersion: string;
   latestVersion?: string | null;
   releaseUrl?: string | null;
+  installerUrl?: string | null;
+  installerName?: string | null;
+  installing?: boolean;
   error?: string | null;
   checkedAt?: number | null;
 }

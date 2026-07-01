@@ -504,7 +504,7 @@ function renderSettingsUpdateControl(updateState: UpdateCheckState) {
   check.type = "button";
   check.className = "settings-update-check";
   check.dataset.settingAction = "checkUpdates";
-  check.disabled = updateState.status === "checking";
+  check.disabled = updateState.status === "checking" || updateState.installing === true;
   check.textContent = updateState.status === "checking" ? "\u68c0\u6d4b\u4e2d" : "\u68c0\u6d4b\u66f4\u65b0";
   actions.append(check);
 
@@ -513,7 +513,8 @@ function renderSettingsUpdateControl(updateState: UpdateCheckState) {
     update.type = "button";
     update.className = "settings-update-primary";
     update.dataset.settingAction = "updateLatest";
-    update.textContent = "\u66f4\u65b0\u5230\u6700\u65b0\u7248\u672c";
+    update.disabled = updateState.installing === true;
+    update.textContent = updateState.installing === true ? "\u4e0b\u8f7d\u4e2d" : "\u4e0b\u8f7d\u5e76\u5b89\u88c5";
     actions.append(update);
   }
 
@@ -572,8 +573,12 @@ function updateMessage(updateState: UpdateCheckState) {
     return "\u6b63\u5728\u8fde\u63a5 GitHub Releases...";
   }
 
+  if (updateState.installing === true) {
+    return "\u6b63\u5728\u4e0b\u8f7d\u6700\u65b0\u5b89\u88c5\u5305...";
+  }
+
   if (updateState.status === "available") {
-    return "\u68c0\u6d4b\u5230\u65b0\u7248\u672c\uff0c\u53ef\u4ee5\u524d\u5f80 release \u9875\u9762\u83b7\u53d6\u5b89\u88c5\u5305\u3002";
+    return "\u68c0\u6d4b\u5230\u65b0\u7248\u672c\uff0c\u53ef\u4ee5\u76f4\u63a5\u4e0b\u8f7d\u5e76\u542f\u52a8\u5b89\u88c5\u7a0b\u5e8f\u3002";
   }
 
   if (updateState.status === "current") {
@@ -1473,8 +1478,8 @@ export function renderUpdateConfirmDialog(currentVersion: string, latestVersion:
     variant: "update",
     title: "\u66f4\u65b0 BuzzDesk",
     name: `${formatVersion(currentVersion)} \u2192 ${formatVersion(latestVersion)}`,
-    message: "\u5c06\u6253\u5f00 GitHub Releases \u9875\u9762\uff0c\u4e0b\u8f7d\u6700\u65b0\u5b89\u88c5\u5305\u540e\u8fdb\u884c\u66f4\u65b0\u3002",
-    confirmLabel: "\u524d\u5f80\u66f4\u65b0"
+    message: "\u5c06\u4e0b\u8f7d\u6700\u65b0\u5b89\u88c5\u5305\u5e76\u542f\u52a8\u66f4\u65b0\u7a0b\u5e8f\uff0c\u8fc7\u7a0b\u4e2d\u53ef\u80fd\u4f1a\u51fa\u73b0 Windows \u5b89\u5168\u786e\u8ba4\u3002",
+    confirmLabel: "\u4e0b\u8f7d\u5e76\u5b89\u88c5"
   });
 }
 
