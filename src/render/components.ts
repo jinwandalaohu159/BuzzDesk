@@ -447,8 +447,22 @@ function renderSettingsControls(
 }
 
 function renderSettingsNavControl(label: string, detail: string, view: Exclude<SettingsView, "main">) {
-  const button = renderSettingsRowButton(label, detail);
+  const button = document.createElement("button");
+  button.className = "settings-nav-row";
+  button.type = "button";
   button.dataset.settingsView = view;
+
+  const text = document.createElement("span");
+  text.className = "settings-nav-text";
+
+  const name = document.createElement("span");
+  name.textContent = label;
+
+  const subtitle = document.createElement("span");
+  subtitle.textContent = detail;
+
+  text.append(name, subtitle);
+  button.append(text);
   return button;
 }
 
@@ -572,25 +586,6 @@ function updateMessage(updateState: UpdateCheckState) {
 function formatVersion(version: string) {
   const normalized = version.trim();
   return normalized ? `v${normalized.replace(/^v/i, "")}` : "\u672a\u77e5";
-}
-
-function renderSettingsRowButton(label: string, detail: string) {
-  const button = document.createElement("button");
-  button.className = "settings-nav-row";
-  button.type = "button";
-
-  const text = document.createElement("span");
-  text.className = "settings-nav-text";
-
-  const name = document.createElement("span");
-  name.textContent = label;
-
-  const subtitle = document.createElement("span");
-  subtitle.textContent = detail;
-
-  text.append(name, subtitle);
-  button.append(text);
-  return button;
 }
 
 function renderFolderPageItems(
@@ -1516,14 +1511,12 @@ function renderConfirmDialog(options: ConfirmDialogOptions) {
   cancel.type = "button";
   cancel.className = "delete-confirm-cancel";
   cancel.dataset.confirmCancel = "true";
-  cancel.dataset.deleteCancel = "true";
   cancel.textContent = "\u53d6\u6d88";
 
   const confirm = document.createElement("button");
   confirm.type = "button";
   confirm.className = "delete-confirm-confirm";
   confirm.dataset.confirmAccept = "true";
-  confirm.dataset.deleteConfirm = "true";
   confirm.textContent = options.confirmLabel;
 
   actions.append(cancel, confirm);

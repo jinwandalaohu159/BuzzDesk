@@ -19,7 +19,6 @@ interface GitHubReleaseResponse {
   tag_name?: string;
   html_url?: string;
   name?: string | null;
-  published_at?: string | null;
 }
 
 export interface UpdateReleaseCheckResult {
@@ -27,8 +26,6 @@ export interface UpdateReleaseCheckResult {
   latestVersion: string;
   hasUpdate: boolean;
   releaseUrl: string;
-  releaseName?: string | null;
-  publishedAt?: string | null;
 }
 
 let cachedInvoke: Invoke | null | undefined;
@@ -378,9 +375,7 @@ export async function checkForUpdateRelease(): Promise<UpdateReleaseCheckResult>
     currentVersion: currentAppVersion,
     latestVersion,
     hasUpdate: compareVersions(latestVersion, currentAppVersion) > 0,
-    releaseUrl: release.html_url ?? updateReleaseUrl,
-    releaseName: release.name ?? null,
-    publishedAt: release.published_at ?? null
+    releaseUrl: release.html_url ?? updateReleaseUrl
   };
 }
 

@@ -241,11 +241,6 @@ type ContextMenuState =
   | { type: "item"; x: number; y: number; nodeId: string }
   | { type: "folderItem"; x: number; y: number; folderId: string; childId: string };
 
-interface ConfirmDialogState {
-  kind: "delete" | "update";
-  resolve: (confirmed: boolean) => void;
-}
-
 interface FolderOpenOrigin {
   x: number;
   y: number;
@@ -300,7 +295,7 @@ export class DesktopApp {
   private settingsContextMenuPaintedDrop: SettingsContextMenuDropTarget | null = null;
   private ratioDialogTargetId: string | null = null;
   private contextMenu: ContextMenuState | null = null;
-  private confirmDialog: ConfirmDialogState | null = null;
+  private confirmDialogResolve: ((confirmed: boolean) => void) | null = null;
   private renamingId: string | null = null;
   private renamingFolderChild: { folderId: string; childId: string } | null = null;
   private selectedFolderChild: { folderId: string; childId: string } | null = null;
@@ -499,7 +494,7 @@ export class DesktopApp {
     this.settingsLayer.addEventListener("change", (event) => this.onSettingsChange(event));
     this.settingsLayer.addEventListener("scroll", () => this.renderSettingsPriorityMenu(), true);
     this.contextMenuLayer.addEventListener("click", (event) => {
-      if (this.confirmDialog) {
+      if (this.confirmDialogResolve) {
         this.onConfirmDialogClick(event);
       } else if (this.ratioDialogTargetId) {
         this.onRatioDialogClick(event);
@@ -915,7 +910,7 @@ export class DesktopApp {
   }
 
   private renderContextMenu() {
-    if (this.confirmDialog) {
+    if (this.confirmDialogResolve) {
       this.contextMenuLayer.classList.add("is-open");
       return;
     }
@@ -4520,7 +4515,7 @@ export class DesktopApp {
   }
 
   private confirmDeleteItem(node: AppNode) {
-    return this.showConfirmDialog("delete", renderDeleteConfirmDialog(node.name));
+    return this.showConfirmDialog(renderDeleteConfirmDialog(node.name));
   }
 
   private confirmUpdateRelease(updateState: UpdateCheckState) {
@@ -4528,16 +4523,13 @@ export class DesktopApp {
       return Promise.resolve(false);
     }
 
-    return this.showConfirmDialog(
-      "update",
-      renderUpdateConfirmDialog(updateState.currentVersion, updateState.latestVersion)
-    );
+    return this.showConfirmDialog(renderUpdateConfirmDialog(updateState.currentVersion, updateState.latestVersion));
   }
 
-  private showConfirmDialog(kind: ConfirmDialogState["kind"], dialog: HTMLElement) {
+  private showConfirmDialog(dialog: HTMLElement) {
     this.beginContextOverlayRequest();
     return new Promise<boolean>((resolve) => {
-      this.confirmDialog = { kind, resolve };
+      this.confirmDialogResolve = resolve;
       this.contextMenuLayer.classList.add("is-open");
       this.contextMenuLayer.replaceChildren(dialog);
       requestAnimationFrame(() => {
@@ -4547,7 +4539,7 @@ export class DesktopApp {
   }
 
   private closeConfirmDialog(confirmed: boolean) {
-    if (!this.confirmDialog) {
+    if (!this.confirmDialogResolve) {
       return;
     }
 
@@ -4628,7 +4620,7 @@ export class DesktopApp {
   }
 
   private handleConfirmDialogKeyDown(event: KeyboardEvent) {
-    if (!this.confirmDialog) {
+    if (!this.confirmDialogResolve) {
       return false;
     }
 
@@ -4671,7 +4663,7 @@ export class DesktopApp {
     if (
       !this.contextMenu ||
       this.ratioDialogTargetId ||
-      this.confirmDialog ||
+      this.confirmDialogResolve ||
       event.ctrlKey ||
       event.metaKey ||
       event.altKey ||
@@ -4947,13 +4939,13 @@ export class DesktopApp {
   }
 
   private resolveConfirmDialog(confirmed: boolean) {
-    const dialog = this.confirmDialog;
-    if (!dialog) {
+    const resolve = this.confirmDialogResolve;
+    if (!resolve) {
       return;
     }
 
-    this.confirmDialog = null;
-    dialog.resolve(confirmed);
+    this.confirmDialogResolve = null;
+    resolve(confirmed);
   }
 
   private pruneDetachedUiState() {
@@ -5007,7 +4999,7 @@ export class DesktopApp {
   private onGlobalPointerDown(event: PointerEvent) {
     const target = event.target as HTMLElement;
 
-    if (this.confirmDialog) {
+    if (this.confirmDialogResolve) {
       if (!target.closest(".confirm-dialog")) {
         this.closeConfirmDialog(false);
       }
@@ -5205,7 +5197,7 @@ export class DesktopApp {
         this.renamingId ||
         this.renamingFolderChild ||
         this.editingFolder ||
-        this.confirmDialog ||
+        this.confirmDialogResolve ||
         this.ratioDialogTargetId ||
         this.contextMenu ||
         this.settingsOpen
