@@ -93,15 +93,11 @@ const desktopActionItems: DesktopContextMenuPoolItem[] = [
   }
 ];
 
+// Without the Windows menu: every app action, settings set apart at the end.
 function desktopFallbackMenuItems(): ContextMenuItemModel[] {
-  return [
-    { key: "action:refresh", source: "action", action: "refresh", label: "刷新" },
-    { key: "action:paste", source: "action", action: "paste", label: "粘贴" },
-    { key: "action:newFolder", source: "action", action: "newFolder", label: "新建文件夹" },
-    { key: "action:autoArrange", source: "action", action: "autoArrange", label: "\u81ea\u52a8\u6392\u5217" },
-    { label: "", separator: true },
-    { key: "action:settings", source: "action", action: "settings", label: "设置" }
-  ];
+  const actions = desktopActionItems.filter((entry) => entry.key !== "action:settings").map((entry) => ({ ...entry.item }));
+  const settings = desktopActionItems.find((entry) => entry.key === "action:settings");
+  return settings ? [...actions, { label: "", separator: true }, { ...settings.item }] : actions;
 }
 
 export function desktopContextMenuPool(nativeItems: NativeContextMenuItem[] = [], parentKey: string | null = null) {
@@ -366,7 +362,9 @@ function resolveContextMenuLayout(
     if (item.source === "native" && !item.parentKey) {
       visibleNativeCount += 1;
     }
-    layout.set(item.key, savedItem ?? {
+    // Copy saved entries: callers reorder the layout in place, and the saved
+    // settings must only change through updateSettings.
+    layout.set(item.key, savedItem ? { ...savedItem } : {
       key: item.key,
       parentKey: item.parentKey,
       source: item.source,
@@ -398,13 +396,17 @@ function contextMenuLayoutMapKey(parentKey: string | null, key: string) {
   return `${parentKey ?? ""}\u0000${key}`;
 }
 
+// Writes the edited layout back. Saved entries the current pool doesn't contain
+// are kept: the Windows menu may not be loaded yet (or may lack an item right
+// now), and editing must never throw away the user's placements for it.
 function mergeContextMenuLayout(
   settings: DesktopContextMenuSettings,
   layout: ReadonlyMap<string, DesktopContextMenuLayoutItem>,
   parentKey: string | null
 ): DesktopContextMenuSettings {
-  const items = settings.items.filter((item) => (item.parentKey ?? null) !== parentKey);
-  return { items: [...items, ...layout.values()] };
+  const edited = new Set([...layout.values()].map((item) => contextMenuLayoutMapKey(item.parentKey ?? parentKey, item.key)));
+  const kept = settings.items.filter((item) => !edited.has(contextMenuLayoutMapKey(item.parentKey ?? null, item.key)));
+  return { items: [...kept, ...layout.values()] };
 }
 
 function menuItemsForPlacement(
@@ -512,7 +514,8 @@ function placementRank(placement: DesktopContextMenuPlacement) {
   return 2;
 }
 
-function collapseMenuSeparators(items: ContextMenuItemModel[]) {
+// Drops leading, trailing and doubled separators.
+export function collapseMenuSeparators(items: ContextMenuItemModel[]) {
   const collapsed: ContextMenuItemModel[] = [];
   let previousSeparator = true;
 

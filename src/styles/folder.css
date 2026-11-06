@@ -1,0 +1,261 @@
+/* Open-folder panel: layer, backdrop, panel, pages, pager and folder items. */
+
+.folder-layer {
+  position: fixed;
+  inset: 0;
+  pointer-events: none;
+  z-index: 80;
+}
+
+.folder-layer.is-open {
+  pointer-events: auto;
+}
+
+.folder-layer.is-closing {
+  pointer-events: none;
+}
+
+.folder-backdrop {
+  position: absolute;
+  inset: 0;
+  background: rgba(12, 16, 22, 0.2);
+  opacity: 0;
+  will-change: opacity;
+}
+
+.folder-backdrop.is-static {
+  opacity: 1;
+  will-change: auto;
+}
+
+.folder-panel {
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  display: grid;
+  grid-template-rows: 70px minmax(0, 1fr);
+  max-width: calc(100vw - 40px);
+  max-height: calc(100vh - 56px);
+  border-radius: 30px;
+  overflow: hidden;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.34), rgba(255, 255, 255, 0.1)),
+    rgba(28, 34, 44, 0.42);
+  border: 1px solid rgba(255, 255, 255, 0.32);
+  box-shadow: var(--shadow-soft), inset 0 1px 0 rgba(255, 255, 255, 0.42);
+  backdrop-filter: blur(14px) saturate(1.14);
+  opacity: 0;
+  transform:
+    translate3d(calc(-50% + var(--folder-open-x, 0px)), calc(-50% + var(--folder-open-y, 0px)), 0)
+    scale(var(--folder-open-scale, .18));
+  transform-origin: center;
+  animation: none;
+  contain: layout paint style;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  transition: background 140ms ease, box-shadow 140ms ease;
+}
+
+.folder-panel.has-pages {
+  grid-template-rows: 70px minmax(0, 1fr) 30px;
+}
+
+.folder-panel.is-static {
+  opacity: 1;
+  transform: translate3d(-50%, -50%, 0) scale(1);
+  animation: none;
+  will-change: auto;
+}
+
+.folder-panel.is-performance-animating {
+  will-change: transform, opacity;
+}
+
+.folder-title {
+  display: grid;
+  place-items: center;
+  padding: 14px 24px 6px;
+}
+
+.folder-title span,
+.folder-title input {
+  max-width: 100%;
+  border: 0;
+  outline: 0;
+  color: white;
+  text-align: center;
+  font-size: 22px;
+  font-weight: 650;
+  line-height: 1.2;
+  background: transparent;
+  text-shadow: var(--text-shadow);
+}
+
+.folder-title input {
+  width: min(320px, 82%);
+  padding: 5px 10px 7px;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.22);
+}
+
+.folder-items-viewport {
+  position: relative;
+  min-height: 0;
+  overflow: hidden;
+  display: block;
+  contain: layout paint style;
+}
+
+.folder-pages {
+  height: 100%;
+  display: flex;
+  transform: translate3d(calc(var(--folder-page-offset, 0%) + var(--folder-page-drag-x, 0px)), 0, 0);
+  transition: transform 280ms cubic-bezier(.16, 1, .3, 1);
+  will-change: transform;
+  touch-action: pan-y;
+}
+
+.folder-items {
+  display: grid;
+  justify-content: center;
+  align-content: start;
+  flex: 0 0 100%;
+  box-sizing: border-box;
+  min-height: 0;
+  padding: 16px 28px 20px;
+  gap: 12px 14px;
+  overflow-x: hidden;
+  overflow-y: hidden;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.3) transparent;
+  touch-action: pan-y;
+  contain: layout paint style;
+}
+
+.folder-panel.is-page-dragging .folder-pages {
+  transition: none;
+}
+
+.folder-items::-webkit-scrollbar {
+  width: 7px;
+  height: 0;
+}
+
+.folder-items::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+.folder-items::-webkit-scrollbar-thumb {
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.28);
+}
+
+.folder-items::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.4);
+}
+
+.folder-pager {
+  display: grid;
+  place-items: center;
+  min-height: 30px;
+  padding: 0 24px 12px;
+}
+
+.folder-page-dots {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+}
+
+.folder-page-dot {
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+  transition: transform 150ms ease;
+}
+
+.folder-page-dot::before {
+  content: "";
+  width: 6px;
+  height: 6px;
+  border-radius: inherit;
+  background: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.18);
+  transition: width 170ms ease, background 170ms ease, transform 170ms ease;
+}
+
+.folder-page-dot.is-current {
+  transform: scale(1.02);
+}
+
+.folder-page-dot.is-current::before {
+  width: 17px;
+  background: rgba(255, 255, 255, 0.86);
+}
+
+.folder-page-dot:hover::before,
+.folder-page-dot:focus-visible::before {
+  background: rgba(255, 255, 255, 0.72);
+}
+
+.folder-page-dot:focus-visible {
+  outline: 0;
+}
+
+.folder-item {
+  width: var(--folder-panel-item-width, 92px);
+  height: var(--folder-panel-item-height, 108px);
+  border: 0;
+  padding: 6px;
+  background: transparent;
+  color: white;
+  border-radius: 16px;
+  display: grid;
+  grid-template-rows: 64px 1fr;
+  place-items: center;
+  touch-action: none;
+  contain: layout paint style;
+}
+
+.folder-item .icon-shell {
+  width: var(--folder-panel-icon-size, var(--desktop-icon-shell-size));
+  height: var(--folder-panel-icon-size, var(--desktop-icon-shell-size));
+}
+
+.folder-item .tile-name {
+  align-self: start;
+  transform: translate3d(0, 2px, 0);
+}
+
+.folder-item:hover {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.folder-item.is-selected {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.22), rgba(255, 255, 255, 0.08)),
+    rgba(255, 255, 255, 0.12);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28), 0 12px 28px rgba(0, 0, 0, 0.18);
+}
+
+.folder-item.is-opening {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.28), rgba(255, 255, 255, 0.1)),
+    rgba(255, 255, 255, 0.14);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.32), 0 16px 34px rgba(0, 0, 0, 0.22);
+}
+
+.folder-item:focus-visible {
+  outline: 0;
+  background: rgba(255, 255, 255, 0.16);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.28), 0 12px 28px rgba(0, 0, 0, 0.2);
+}

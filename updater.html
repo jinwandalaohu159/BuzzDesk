@@ -1,0 +1,25 @@
+<!doctype html>
+<html lang="zh-CN">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>BuzzDesk 更新</title>
+  </head>
+  <body>
+    <main class="updater-card" aria-live="polite">
+      <header class="updater-header">
+        <img id="updater-icon" class="updater-icon" alt="" draggable="false" />
+        <div class="updater-titles">
+          <h1 id="updater-title">BuzzDesk 正在更新</h1>
+          <p id="updater-version"></p>
+        </div>
+        <span id="updater-percent" class="updater-percent">0%</span>
+      </header>
+      <div class="updater-track" role="progressbar" aria-valuemin="0" aria-valuemax="100">
+        <span id="updater-bar" class="updater-bar"></span>
+      </div>
+      <p id="updater-message" class="updater-message">正在准备…</p>
+    </main>
+    <script type="module" src="/src/updater/main.ts"></script>
+  </body>
+</html>

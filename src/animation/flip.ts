@@ -1,6 +1,11 @@
-interface FlipRect {
+import { springs } from "./spring";
+
+// Where a tile was, in client coordinates, and how much it was scaled (a lifted,
+// dragged icon is slightly enlarged).
+export interface FlipRect {
   left: number;
   top: number;
+  scale?: number;
 }
 
 export function captureRects(root: ParentNode): Map<string, FlipRect> {
@@ -22,55 +27,54 @@ interface FlipOptions {
   skipNewIds?: Set<string>;
 }
 
+// Start right away (not on the next frame): the caller has just rendered the
+// final layout, and waiting a frame would show every moved tile at its final
+// position for one frame before it jumps back and glides.
 export function playFlip(root: ParentNode, before: Map<string, FlipRect>, options: FlipOptions = {}) {
-  requestAnimationFrame(() => {
-    const rootRect = root instanceof HTMLElement ? root.getBoundingClientRect() : { left: 0, top: 0 };
-    root.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
-      const id = element.dataset.nodeId;
-      if (!id || element.classList.contains("is-dragging")) {
-        return;
-      }
+  const rootRect = root instanceof HTMLElement ? root.getBoundingClientRect() : { left: 0, top: 0 };
+  root.querySelectorAll<HTMLElement>("[data-node-id]").forEach((element) => {
+    const id = element.dataset.nodeId;
+    if (!id || element.classList.contains("is-dragging")) {
+      return;
+    }
 
-      if (options.skipIds?.has(id)) {
-        return;
-      }
+    if (options.skipIds?.has(id)) {
+      return;
+    }
 
-      const previous = before.get(id);
-      cancelElementAnimations(element);
-      if (!previous) {
-        if (options.skipNewIds?.has(id)) {
-          return;
-        }
-
-        element.animate(
-          [
-            { opacity: 0, transform: `${element.style.transform} scale(.86)` },
-            { opacity: 1, transform: element.style.transform }
-          ],
-          { duration: 190, easing: "cubic-bezier(.16,1,.22,1)" }
-        );
-        return;
-      }
-
-      const next = layoutRectForElement(element, rootRect);
-      const dx = previous.left - next.left;
-      const dy = previous.top - next.top;
-
-      if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5) {
+    const previous = before.get(id);
+    cancelElementAnimations(element);
+    if (!previous) {
+      if (options.skipNewIds?.has(id)) {
         return;
       }
 
       element.animate(
         [
-          { transform: `${element.style.transform} translate3d(${dx}px, ${dy}px, 0)` },
-          { transform: element.style.transform }
+          { opacity: 0, transform: `${element.style.transform} scale(.86)` },
+          { opacity: 1, transform: element.style.transform }
         ],
-        {
-          duration: Math.min(320, Math.max(190, Math.hypot(dx, dy) * 1.6)),
-          easing: "cubic-bezier(.16,1,.22,1)"
-        }
+        { duration: springs.pop.duration, easing: springs.pop.easing }
       );
-    });
+      return;
+    }
+
+    const next = layoutRectForElement(element, rootRect);
+    const dx = previous.left - next.left;
+    const dy = previous.top - next.top;
+    const scale = previous.scale ?? 1;
+
+    if (Math.abs(dx) < 0.5 && Math.abs(dy) < 0.5 && Math.abs(scale - 1) < 0.005) {
+      return;
+    }
+
+    element.animate(
+      [
+        { transform: `${element.style.transform} translate3d(${dx}px, ${dy}px, 0) scale(${scale})` },
+        { transform: `${element.style.transform} translate3d(0px, 0px, 0) scale(1)` }
+      ],
+      { duration: springs.settle.duration, easing: springs.settle.easing }
+    );
   });
 }
 
@@ -81,9 +85,11 @@ function layoutRectForElement(element: HTMLElement, rootRect: Pick<DOMRect, "lef
     return { left: rect.left, top: rect.top };
   }
 
+  const scale = /scale\((-?\d+(?:\.\d+)?)\)/.exec(element.style.transform);
   return {
     left: rootRect.left + transform.x,
-    top: rootRect.top + transform.y
+    top: rootRect.top + transform.y,
+    scale: scale ? Number(scale[1]) : 1
   };
 }
 

@@ -1,0 +1,42 @@
+/* Drag visuals: floating tile, merge-target flight and merge ghosts. */
+
+.floating-drag {
+  position: fixed;
+  z-index: 120;
+  width: 106px;
+  height: 124px;
+  display: grid;
+  grid-template-rows: calc(var(--desktop-icon-shell-size) + 8px) 1fr;
+  justify-items: center;
+  align-items: center;
+  gap: 5px;
+  pointer-events: none;
+  will-change: transform;
+  backface-visibility: hidden;
+  contain: layout paint style;
+}
+
+.merge-flight {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  z-index: 150 !important;
+  pointer-events: none !important;
+  margin: 0 !important;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+  contain: layout paint style;
+}
+
+/* --- Merge ghosts (icons flying into a folder cover) --- */
+.merge-ghost {
+  position: fixed !important;
+  left: 0 !important;
+  top: 0 !important;
+  z-index: 150 !important;
+  margin: 0 !important;
+  pointer-events: none !important;
+  transform-origin: 0 0;
+  will-change: transform, opacity;
+  backface-visibility: hidden;
+}

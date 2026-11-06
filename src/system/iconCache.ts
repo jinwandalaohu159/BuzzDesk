@@ -3,6 +3,7 @@ import type { AppNode } from "../types";
 const iconCacheKey = "desktop-layer-icon-cache-v4";
 const maxCachedIcons = 160;
 const maxIconDataUrlLength = 220_000;
+const recencyRefreshMs = 24 * 60 * 60 * 1000;
 
 interface CachedIconEntry {
   iconDataUrl: string;
@@ -43,8 +44,12 @@ export function rememberIconImages(items: AppNode[]) {
     const key = cacheKeyForItem(item);
     const existing = cache.entries[key];
     if (existing?.iconDataUrl === item.iconDataUrl) {
+      // Unchanged icon: refresh its recency, but only rewrite the whole cache
+      // for that once a day (it can be megabytes of localStorage).
+      if (now - existing.updatedAt > recencyRefreshMs) {
+        changed = true;
+      }
       existing.updatedAt = now;
-      changed = true;
       continue;
     }
 

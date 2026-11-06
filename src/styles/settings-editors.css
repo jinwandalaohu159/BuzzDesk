@@ -1,0 +1,468 @@
+/* Settings editors: desktop system icons and the context-menu editor. */
+
+.settings-system-manager {
+  display: grid;
+  gap: 12px;
+  padding-top: 2px;
+  padding-bottom: 2px;
+}
+
+.settings-system-gallery {
+  display: grid;
+  grid-template-columns: repeat(5, 90px);
+  justify-content: center;
+  align-items: start;
+  gap: 10px 14px;
+}
+
+.settings-system-card,
+.settings-system-add-card {
+  position: relative;
+  display: grid;
+  grid-template-rows: 42px minmax(28px, auto);
+  align-content: start;
+  justify-items: center;
+  width: 90px;
+  max-width: 100%;
+  min-height: 92px;
+  gap: 5px;
+  padding: 10px 8px 8px;
+  border: 1px solid var(--settings-border);
+  border-radius: 16px;
+  color: var(--settings-title-text);
+  background: var(--settings-surface-bg);
+  box-shadow: 0 8px 20px rgba(15, 23, 42, 0.08);
+}
+
+.settings-system-card .icon-shell,
+.settings-system-candidate .icon-shell {
+  width: 42px;
+  height: 42px;
+}
+
+.settings-system-card .app-icon,
+.settings-system-card .fallback-icon,
+.settings-system-candidate .app-icon,
+.settings-system-candidate .fallback-icon {
+  width: 38px;
+  height: 38px;
+  border-radius: 10px;
+  filter: drop-shadow(0 5px 10px rgba(0, 0, 0, 0.2));
+}
+
+.settings-system-card-label,
+.settings-system-candidate > span:last-child,
+.settings-system-add-card > span:last-child {
+  display: block;
+  max-width: 100%;
+  color: var(--settings-title-text);
+  font-size: 12px;
+  line-height: 1.2;
+  text-align: center;
+  overflow-wrap: anywhere;
+}
+
+.settings-system-remove {
+  position: absolute;
+  right: 7px;
+  top: 7px;
+  width: 20px;
+  height: 20px;
+  padding: 0;
+  border: 0;
+  border-radius: 50%;
+  color: var(--settings-muted-text);
+  background: var(--settings-control-bg);
+}
+
+.settings-system-remove::before,
+.settings-system-remove::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 9px;
+  height: 1.4px;
+  border-radius: 999px;
+  background: currentColor;
+  transform-origin: center;
+}
+
+.settings-system-remove::before {
+  transform: translate(-50%, -50%) rotate(45deg);
+}
+
+.settings-system-remove::after {
+  transform: translate(-50%, -50%) rotate(-45deg);
+}
+
+.settings-system-remove:hover {
+  color: var(--settings-title-text);
+  background: var(--settings-control-hover-bg);
+}
+
+.settings-system-add-card {
+  border-style: dashed;
+  color: var(--settings-muted-text);
+  font: inherit;
+  font-weight: 600;
+  cursor: pointer;
+  box-shadow: none;
+}
+
+.settings-system-add-card:hover,
+.settings-system-add-card[aria-expanded="true"] {
+  color: var(--settings-title-text);
+  border-color: #a8c5ff;
+  background: var(--settings-active-bg);
+}
+
+.settings-system-add-plus {
+  display: grid;
+  place-items: center;
+  width: 38px;
+  height: 38px;
+  border-radius: 13px;
+  color: inherit;
+  font-size: 25px;
+  line-height: 1;
+  background: var(--settings-control-bg);
+}
+
+.settings-system-empty,
+.settings-system-picker-empty {
+  display: grid;
+  place-items: center;
+  grid-column: span 4;
+  min-height: 92px;
+  border: 1px dashed var(--settings-border);
+  border-radius: 16px;
+  color: var(--settings-muted-text);
+  font-size: 13px;
+  text-align: center;
+}
+
+.settings-system-picker {
+  display: grid;
+  grid-template-columns: repeat(5, 90px);
+  justify-content: center;
+  align-items: start;
+  gap: 10px 14px;
+  padding: 9px;
+  border: 1px solid var(--settings-border);
+  border-radius: 18px;
+  background: var(--settings-control-bg);
+}
+
+.settings-system-candidate {
+  display: grid;
+  grid-template-rows: 42px minmax(28px, auto);
+  align-content: start;
+  justify-items: center;
+  gap: 5px;
+  width: 90px;
+  max-width: 100%;
+  min-height: 92px;
+  padding: 10px 8px 8px;
+  border: 0;
+  border-radius: 16px;
+  color: var(--settings-title-text);
+  font: inherit;
+  text-align: center;
+  background: var(--settings-surface-bg);
+}
+
+.settings-system-candidate:hover {
+  background: var(--settings-control-hover-bg);
+}
+
+.settings-menu-manager {
+  display: grid;
+  gap: 16px;
+  padding: 2px 0;
+}
+
+.settings-menu-group {
+  display: grid;
+  gap: 10px;
+  padding: 12px;
+  border: 1px solid var(--settings-border);
+  border-radius: 20px;
+  background: var(--settings-surface-bg);
+  box-shadow: 0 10px 26px rgba(15, 23, 42, 0.08);
+}
+
+.settings-menu-group-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.settings-menu-group-header > span:first-child {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-menu-group-header strong {
+  color: var(--settings-title-text);
+  font-size: 13px;
+  line-height: 1.2;
+}
+
+.settings-menu-group-header span span {
+  color: var(--settings-muted-text);
+  font-size: 12px;
+  line-height: 1.2;
+}
+
+.settings-menu-count {
+  display: grid;
+  place-items: center;
+  min-width: 26px;
+  height: 24px;
+  padding: 0 8px;
+  border-radius: 999px;
+  color: var(--settings-muted-text);
+  font-size: 12px;
+  font-weight: 700;
+  background: var(--settings-control-bg);
+}
+
+.settings-menu-editor-list,
+.settings-menu-pool {
+  display: grid;
+  gap: 0;
+  padding: 8px;
+  border: 1px solid var(--settings-border);
+  border-radius: 18px;
+  background: var(--settings-control-bg);
+  overflow: hidden;
+}
+
+.settings-menu-editor-list.is-drop-end {
+  box-shadow: inset 0 -3px 0 #8fb6ff;
+}
+
+.settings-menu-editor-item,
+.settings-menu-pool-item,
+.settings-menu-more-marker {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 9px;
+  min-height: 44px;
+  padding: 7px 8px;
+  border-radius: 13px;
+  background: transparent;
+  transition: background 120ms ease, opacity 120ms ease, transform 120ms ease, box-shadow 120ms ease;
+}
+
+.settings-menu-editor-item {
+  position: relative;
+  cursor: grab;
+  touch-action: none;
+  user-select: none;
+  z-index: 0;
+}
+
+.settings-menu-editor-item:active {
+  cursor: grabbing;
+}
+
+.settings-menu-editor-item:hover,
+.settings-menu-editor-item.is-drop-before,
+.settings-menu-editor-item.is-drop-after {
+  background: var(--settings-surface-bg);
+}
+
+.settings-menu-editor-item.is-dragging {
+  opacity: .74;
+  transform: translate3d(0, var(--settings-menu-drag-y, 0px), 0) scale(.985);
+  transition: opacity 80ms ease, background 80ms ease, box-shadow 80ms ease;
+  will-change: transform;
+  z-index: 2;
+}
+
+.settings-menu-editor-item.is-drop-before {
+  box-shadow: inset 0 3px 0 #8fb6ff;
+}
+
+.settings-menu-editor-item.is-drop-after {
+  box-shadow: inset 0 -3px 0 #8fb6ff;
+}
+
+.settings-menu-drag-handle {
+  width: 10px;
+  height: 18px;
+  opacity: .5;
+  background:
+    radial-gradient(circle, currentColor 1.1px, transparent 1.6px) 0 1px / 5px 6px,
+    radial-gradient(circle, currentColor 1.1px, transparent 1.6px) 5px 4px / 5px 6px;
+  color: var(--settings-muted-text);
+}
+
+.settings-menu-item-meta {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.settings-menu-item-meta.has-submenu {
+  cursor: pointer;
+}
+
+.settings-menu-item-meta > span {
+  color: var(--settings-title-text);
+  font-size: 13px;
+  line-height: 1.2;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.settings-menu-item-meta small {
+  color: var(--settings-muted-text);
+  font-size: 11px;
+  line-height: 1;
+}
+
+.settings-menu-item-actions {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.settings-menu-item-actions button,
+.settings-menu-reset {
+  border: 0;
+  color: var(--settings-panel-text);
+  font: inherit;
+  background: var(--settings-control-bg);
+}
+
+.settings-menu-item-actions button {
+  min-width: 40px;
+  height: 28px;
+  padding: 0 9px;
+  border-radius: 999px;
+  font-size: 12px;
+  line-height: 1;
+}
+
+.settings-menu-item-actions button:hover,
+.settings-menu-reset:hover {
+  background: var(--settings-control-hover-bg);
+}
+
+.settings-menu-empty {
+  display: grid;
+  place-items: center;
+  min-height: 44px;
+  border: 1px dashed var(--settings-border);
+  border-radius: 13px;
+  color: var(--settings-muted-text);
+  font-size: 12px;
+}
+
+.settings-menu-divider-toggle {
+  position: relative;
+  height: 18px;
+  margin: -2px 4px;
+  padding: 0;
+  border: 0;
+  border-radius: 999px;
+  background: transparent;
+  cursor: pointer;
+  transition: background 120ms ease, box-shadow 120ms ease;
+}
+
+.settings-menu-divider-toggle span {
+  position: absolute;
+  left: 22px;
+  right: 22px;
+  top: 50%;
+  height: 1px;
+  border-radius: 999px;
+  background: var(--settings-border);
+  opacity: .35;
+  transform: translateY(-50%);
+  transition: opacity 120ms ease, background 120ms ease, height 120ms ease;
+}
+
+.settings-menu-divider-toggle::after {
+  content: "";
+  position: absolute;
+  left: 50%;
+  top: 50%;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--settings-muted-text);
+  opacity: .28;
+  transform: translate(-50%, -50%);
+  transition: opacity 120ms ease, transform 120ms ease, background 120ms ease;
+}
+
+.settings-menu-divider-toggle:hover,
+.settings-menu-divider-toggle.is-drop-after {
+  background: var(--settings-surface-bg);
+}
+
+.settings-menu-divider-toggle:hover span {
+  opacity: .7;
+}
+
+.settings-menu-divider-toggle:hover::after,
+.settings-menu-divider-toggle.is-drop-after::after {
+  opacity: .7;
+  transform: translate(-50%, -50%) scale(1.15);
+}
+
+.settings-menu-divider-toggle.is-active span {
+  height: 1.5px;
+  background: var(--settings-title-text);
+  opacity: .5;
+}
+
+.settings-menu-divider-toggle.is-active::after {
+  background: var(--settings-title-text);
+  opacity: .62;
+}
+
+.settings-menu-pool {
+  gap: 6px;
+  overflow: visible;
+}
+
+.settings-menu-pool-item {
+  grid-template-columns: minmax(0, 1fr) auto;
+  background: var(--settings-control-bg);
+}
+
+.settings-menu-more-marker {
+  grid-template-columns: minmax(0, 1fr) auto;
+  margin-top: 6px;
+  padding-left: 16px;
+  padding-right: 16px;
+  color: var(--settings-muted-text);
+  background: var(--settings-surface-bg);
+}
+
+.settings-menu-more-marker > span {
+  color: var(--settings-title-text);
+  font-size: 13px;
+}
+
+.settings-menu-more-marker small {
+  font-size: 12px;
+}
+
+.settings-menu-reset {
+  justify-self: center;
+  min-height: 36px;
+  padding: 0 16px;
+  border-radius: 999px;
+  font-size: 13px;
+}

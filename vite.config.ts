@@ -1,5 +1,6 @@
 import { defineConfig } from "vite";
 import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 
 const tauriConfig = JSON.parse(readFileSync(new URL("./src-tauri/tauri.conf.json", import.meta.url), "utf8")) as {
   version?: string;
@@ -27,7 +28,13 @@ export default defineConfig({
   },
   build: {
     target: "es2022",
-    minify: "esbuild"
+    minify: "esbuild",
+    rollupOptions: {
+      input: {
+        main: fileURLToPath(new URL("./index.html", import.meta.url)),
+        updater: fileURLToPath(new URL("./updater.html", import.meta.url))
+      }
+    }
   },
   envPrefix: ["VITE_", "TAURI_"]
 });

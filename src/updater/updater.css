@@ -1,0 +1,142 @@
+:root {
+  font-family: "Segoe UI Variable Text", "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  color-scheme: dark;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  margin: 0;
+  width: 100%;
+  height: 100%;
+  overflow: hidden;
+  background: transparent;
+  user-select: none;
+  cursor: default;
+}
+
+body {
+  display: grid;
+  place-items: center;
+  padding: 14px;
+}
+
+.updater-card {
+  width: 100%;
+  height: 100%;
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+  gap: 14px;
+  padding: 18px 20px 16px;
+  border-radius: 22px;
+  color: #f8fafc;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.16), rgba(255, 255, 255, 0.04) 46%),
+    rgba(24, 28, 36, 0.94);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  box-shadow:
+    0 12px 32px rgba(0, 0, 0, 0.32),
+    inset 0 1px 0 rgba(255, 255, 255, 0.18);
+  animation: card-in 420ms cubic-bezier(.2, .9, .2, 1) both;
+}
+
+.updater-header {
+  display: grid;
+  grid-template-columns: 40px 1fr auto;
+  align-items: center;
+  gap: 12px;
+}
+
+.updater-icon {
+  width: 40px;
+  height: 40px;
+  border-radius: 11px;
+  object-fit: contain;
+  background: rgba(255, 255, 255, 0.08);
+  padding: 4px;
+}
+
+.updater-titles h1 {
+  margin: 0;
+  font-size: 15px;
+  font-weight: 600;
+  line-height: 20px;
+}
+
+.updater-titles p {
+  margin: 2px 0 0;
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(248, 250, 252, 0.62);
+}
+
+.updater-percent {
+  font-size: 13px;
+  font-variant-numeric: tabular-nums;
+  color: rgba(248, 250, 252, 0.8);
+}
+
+.updater-track {
+  position: relative;
+  height: 6px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.updater-bar {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform-origin: left center;
+  transform: scaleX(0.015);
+  background: linear-gradient(90deg, #60a5fa, #a78bfa);
+  box-shadow: 0 0 12px rgba(96, 165, 250, 0.55);
+}
+
+.updater-bar::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.45), transparent);
+  transform: translateX(-100%);
+  animation: shimmer 1.4s ease-in-out infinite;
+}
+
+.is-done .updater-bar {
+  background: linear-gradient(90deg, #34d399, #6ee7b7);
+  box-shadow: 0 0 12px rgba(52, 211, 153, 0.5);
+}
+
+.is-done .updater-bar::after {
+  animation: none;
+}
+
+.is-failed .updater-bar {
+  background: linear-gradient(90deg, #f59e0b, #f97316);
+  box-shadow: 0 0 12px rgba(245, 158, 11, 0.45);
+}
+
+.updater-message {
+  margin: 0;
+  align-self: start;
+  font-size: 12px;
+  line-height: 16px;
+  color: rgba(248, 250, 252, 0.72);
+}
+
+@keyframes shimmer {
+  to {
+    transform: translateX(100%);
+  }
+}
+
+@keyframes card-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, 8px, 0) scale(.97);
+  }
+}

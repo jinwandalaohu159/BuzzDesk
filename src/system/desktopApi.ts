@@ -8,33 +8,9 @@ import type {
   NativeContextMenuResult
 } from "../types";
 import { applyCachedIcons, rememberIconImages } from "./iconCache";
+import { updateReleaseUrl } from "./updateRelease";
 
 type Invoke = <T>(command: string, args?: Record<string, unknown>) => Promise<T>;
-
-const updateReleaseUrl = "https://github.com/jinwandalaohu159/BuzzDesk/releases/latest";
-const updateReleaseApiUrl = "https://api.github.com/repos/jinwandalaohu159/BuzzDesk/releases/latest";
-export const currentAppVersion = __APP_VERSION__;
-
-interface GitHubReleaseResponse {
-  tag_name?: string;
-  html_url?: string;
-  name?: string | null;
-  assets?: GitHubReleaseAsset[];
-}
-
-interface GitHubReleaseAsset {
-  name?: string;
-  browser_download_url?: string;
-}
-
-export interface UpdateReleaseCheckResult {
-  currentVersion: string;
-  latestVersion: string;
-  hasUpdate: boolean;
-  releaseUrl: string;
-  installerUrl: string | null;
-  installerName: string | null;
-}
 
 let cachedInvoke: Invoke | null | undefined;
 
@@ -362,50 +338,6 @@ export async function setStartupEnabled(enabled: boolean) {
   await invoke("set_startup_enabled", { enabled });
 }
 
-export async function checkForUpdateRelease(): Promise<UpdateReleaseCheckResult> {
-  const response = await fetch(updateReleaseApiUrl, {
-    headers: {
-      Accept: "application/vnd.github+json"
-    }
-  });
-
-  if (!response.ok) {
-    throw new Error(`GitHub release check failed: ${response.status}`);
-  }
-
-  const release = (await response.json()) as GitHubReleaseResponse;
-  const latestVersion = normalizeVersionTag(release.tag_name ?? release.name ?? "");
-  if (!latestVersion) {
-    throw new Error("GitHub latest release does not contain a version tag");
-  }
-  const installer = findReleaseInstaller(release.assets);
-
-  return {
-    currentVersion: currentAppVersion,
-    latestVersion,
-    hasUpdate: compareVersions(latestVersion, currentAppVersion) > 0,
-    releaseUrl: release.html_url ?? updateReleaseUrl,
-    installerUrl: installer?.browser_download_url ?? null,
-    installerName: installer?.name ?? null
-  };
-}
-
-function findReleaseInstaller(assets: GitHubReleaseAsset[] | undefined) {
-  if (!assets) {
-    return null;
-  }
-
-  return (
-    assets.find((asset) => isWindowsInstallerAsset(asset, /setup\.exe$/i)) ??
-    assets.find((asset) => isWindowsInstallerAsset(asset, /\.exe$/i)) ??
-    null
-  );
-}
-
-function isWindowsInstallerAsset(asset: GitHubReleaseAsset, pattern: RegExp) {
-  return Boolean(asset.name?.match(pattern) && asset.browser_download_url);
-}
-
 export async function openUpdateReleasePage(url = updateReleaseUrl) {
   if (!hasTauriRuntime()) {
     window.open(url, "_blank", "noopener,noreferrer");
@@ -426,56 +358,59 @@ export async function openUpdateReleasePage(url = updateReleaseUrl) {
   }
 }
 
-export async function downloadAndLaunchUpdateInstaller(url: string, fileName: string) {
-  if (!hasTauriRuntime()) {
-    window.open(url, "_blank", "noopener,noreferrer");
-    return;
-  }
+export interface UpdateDownloadProgress {
+  downloaded: number;
+  total: number | null;
+}
 
+// Downloads the installer through the native side and reports byte progress.
+// Returns false when there is no native runtime (browser preview).
+export async function downloadUpdateInstaller(
+  url: string,
+  fileName: string,
+  onProgress: (progress: UpdateDownloadProgress) => void
+) {
   const invoke = await getInvoke();
   if (!invoke) {
     window.open(url, "_blank", "noopener,noreferrer");
+    return false;
+  }
+
+  const { listen } = await import("@tauri-apps/api/event");
+  const unlisten = await listen<UpdateDownloadProgress>("update-download-progress", (event) => {
+    onProgress(event.payload);
+  });
+
+  try {
+    await invoke<string>("download_update_installer", { url, fileName });
+    return true;
+  } finally {
+    unlisten();
+  }
+}
+
+// Hands installation over to the helper process; the app exits right after.
+export async function launchUpdateHelper(fileName: string, version: string) {
+  const invoke = await getInvoke();
+  if (!invoke) {
     return;
   }
 
-  await invoke("download_and_launch_update_installer", { url, fileName });
+  await invoke("launch_update_helper", { fileName, version });
 }
 
-function normalizeVersionTag(value: string) {
-  return value.trim().replace(/^v/i, "");
-}
-
-function compareVersions(left: string, right: string) {
-  const a = parseVersion(left);
-  const b = parseVersion(right);
-
-  for (let index = 0; index < Math.max(a.numbers.length, b.numbers.length, 3); index += 1) {
-    const difference = (a.numbers[index] ?? 0) - (b.numbers[index] ?? 0);
-    if (difference !== 0) {
-      return difference;
-    }
+export async function showSystemNotification(title: string, body: string) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    console.info("Notification", title, body);
+    return;
   }
 
-  if (a.prerelease && !b.prerelease) {
-    return -1;
+  try {
+    await invoke("show_system_notification", { title, body });
+  } catch (error) {
+    console.warn("Unable to show system notification", error);
   }
-
-  if (!a.prerelease && b.prerelease) {
-    return 1;
-  }
-
-  return a.prerelease.localeCompare(b.prerelease);
-}
-
-function parseVersion(value: string) {
-  const [core, prerelease = ""] = normalizeVersionTag(value).split("-", 2);
-  return {
-    numbers: core.split(".").map((part) => {
-      const number = Number.parseInt(part, 10);
-      return Number.isFinite(number) ? number : 0;
-    }),
-    prerelease
-  };
 }
 
 function toAppNode(item: DesktopSourceItem): AppNode {
@@ -541,4 +476,122 @@ function hasTauriRuntime() {
 
 export function isDesktopRuntime() {
   return hasTauriRuntime();
+}
+
+export interface DesktopBackdropInfo {
+  virtualX: number;
+  virtualY: number;
+  virtualWidth: number;
+  virtualHeight: number;
+  layerBleed: number;
+  // Changes whenever the wallpaper or the monitor layout changes.
+  signature: string;
+}
+
+export type DesktopBackdropSnapshot = {
+  width: number;
+  height: number;
+  pixels: ImageData;
+};
+
+export async function getDesktopBackdropInfo() {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return null;
+  }
+
+  return invoke<DesktopBackdropInfo>("get_desktop_backdrop_info");
+}
+
+// Whether no window covers the desktop right now.
+export async function desktopBackdropClear() {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return false;
+  }
+
+  return invoke<boolean>("desktop_backdrop_clear");
+}
+
+// Snapshot of the screen as it is now (the caller hides its own content first);
+// null when a window covers the desktop.
+export async function captureDesktopBackdrop(signature: string) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return null;
+  }
+
+  return decodeBackdrop(await invoke<ArrayBuffer>("capture_desktop_backdrop", { signature }));
+}
+
+// The cached snapshot for this exact wallpaper, if any.
+export async function loadDesktopBackdrop(signature: string) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return null;
+  }
+
+  return decodeBackdrop(await invoke<ArrayBuffer>("load_desktop_backdrop", { signature }));
+}
+
+function decodeBackdrop(buffer: ArrayBuffer): DesktopBackdropSnapshot | null {
+  if (buffer.byteLength < 8) {
+    return null;
+  }
+
+  const header = new DataView(buffer, 0, 8);
+  const width = header.getUint32(0, true);
+  const height = header.getUint32(4, true);
+  if (width === 0 || height === 0 || buffer.byteLength < 8 + width * height * 4) {
+    return null;
+  }
+
+  const pixels = new ImageData(new Uint8ClampedArray(buffer, 8, width * height * 4), width, height);
+  return { width, height, pixels };
+}
+
+export interface LegacyInstall {
+  version: string;
+  location: string;
+  uninstaller: string;
+}
+
+// Re-points the logon entry at this executable (after a move to the per-user install).
+export async function repairStartupEntry() {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return false;
+  }
+
+  try {
+    return await invoke<boolean>("repair_startup_entry");
+  } catch (error) {
+    console.warn("Unable to repair startup entry", error);
+    return false;
+  }
+}
+
+export async function detectLegacyInstall() {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return null;
+  }
+
+  try {
+    return await invoke<LegacyInstall | null>("detect_legacy_install");
+  } catch (error) {
+    console.warn("Unable to detect legacy install", error);
+    return null;
+  }
+}
+
+// Hands off to the helper process, which asks for elevation exactly once,
+// removes the old Program Files copy and relaunches BuzzDesk.
+export async function cleanupLegacyInstall(restoreStartup: boolean) {
+  const invoke = await getInvoke();
+  if (!invoke) {
+    return;
+  }
+
+  await invoke("cleanup_legacy_install", { restoreStartup });
 }

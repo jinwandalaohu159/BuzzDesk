@@ -19,6 +19,7 @@ import {
 } from "../settings/desktopSettings";
 import { loadState, saveState } from "./persistence";
 import { createScannedPathIndex, resolveScannedItem } from "./reconcile";
+import { clampIndex } from "../shared/math";
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
 
@@ -130,7 +131,10 @@ export class DesktopStore {
         }
 
         changed = true;
-        return nextItem;
+        return {
+          ...nextItem,
+          position: nextItem.position ?? node.position ?? null
+        };
       }
 
       let nodeChanged = false;
@@ -175,7 +179,7 @@ export class DesktopStore {
       }
 
       changed = true;
-      return current;
+      return { ...current, position: item.position ?? null };
     };
 
     this.nodes = this.nodes.map((node) => {
@@ -219,46 +223,6 @@ export class DesktopStore {
     }
 
     if (!changed) {
-      return false;
-    }
-
-    this.nodes = next;
-    this.persistAndEmit();
-    return true;
-  }
-
-  moveDesktopNode(nodeId: string, targetIndex: number) {
-    const currentIndex = this.nodes.findIndex((node) => node.id === nodeId);
-    if (currentIndex < 0) {
-      return false;
-    }
-
-    const [node] = this.nodes.splice(currentIndex, 1);
-    const adjustedIndex = currentIndex < targetIndex ? targetIndex - 1 : targetIndex;
-    this.nodes.splice(clampIndex(adjustedIndex, this.nodes.length), 0, node);
-    this.persistAndEmit();
-    return true;
-  }
-
-  moveDesktopNodes(nodeIds: string[], targetIndex: number) {
-    const movingIds = new Set(nodeIds);
-    const moving = this.nodes.filter((node) => movingIds.has(node.id));
-    if (moving.length === 0) {
-      return false;
-    }
-
-    const removedBeforeTarget = this.nodes
-      .slice(0, clampIndex(targetIndex, this.nodes.length))
-      .filter((node) => movingIds.has(node.id)).length;
-    const remaining = this.nodes.filter((node) => !movingIds.has(node.id));
-    const insertionIndex = clampIndex(targetIndex - removedBeforeTarget, remaining.length);
-    const next = [
-      ...remaining.slice(0, insertionIndex),
-      ...moving,
-      ...remaining.slice(insertionIndex)
-    ];
-
-    if (sameNodeOrder(next, this.nodes)) {
       return false;
     }
 
@@ -347,34 +311,25 @@ export class DesktopStore {
     return true;
   }
 
-  createFolder(sourceId: string, targetId: string): FolderCreationResult {
-    const sourceIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === sourceId);
-    const targetIndex = this.nodes.findIndex((node) => node.type === "item" && node.id === targetId);
-    if (sourceIndex < 0 || targetIndex < 0 || sourceIndex === targetIndex) {
-      return { changed: false, folderId: null };
+  // Moves desktop nodes so they sit before the node currently at `index` among
+  // the other (non-moving) desktop nodes, or at the end.
+  placeDesktopNodes(nodeIds: string[], index: number) {
+    const movingIds = new Set(nodeIds);
+    const moving = this.nodes.filter((node) => movingIds.has(node.id));
+    if (moving.length === 0) {
+      return false;
     }
 
-    const source = this.nodes[sourceIndex] as AppNode;
-    const target = this.nodes[targetIndex] as AppNode;
-    const folder: FolderNode = {
-      type: "folder",
-      id: `folder:${crypto.randomUUID()}`,
-      name: defaultFolderName,
-      children: [target, source],
-      appearance: createDefaultFolderAppearance(),
-      createdAt: Date.now(),
-      position: target.position ?? null
-    };
+    const remaining = this.nodes.filter((node) => !movingIds.has(node.id));
+    const insertAt = clampIndex(index, remaining.length);
+    const next = [...remaining.slice(0, insertAt), ...moving, ...remaining.slice(insertAt)];
+    if (sameNodeOrder(next, this.nodes)) {
+      return false;
+    }
 
-    const insertionIndex = targetIndex - (sourceIndex < targetIndex ? 1 : 0);
-    this.nodes = this.nodes.filter((_, index) => index !== sourceIndex && index !== targetIndex);
-    this.nodes.splice(clampIndex(insertionIndex, this.nodes.length), 0, folder);
+    this.nodes = next;
     this.persistAndEmit();
-    return { changed: true, folderId: folder.id };
-  }
-
-  addDesktopItemToFolder(sourceId: string, folderId: string) {
-    return this.addDesktopItemsToFolder([sourceId], folderId);
+    return true;
   }
 
   addDesktopItemsToFolder(sourceIds: string[], folderId: string) {
@@ -622,10 +577,6 @@ function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNod
   }
 
   return nodes;
-}
-
-function clampIndex(index: number, length: number) {
-  return Math.min(length, Math.max(0, index));
 }
 
 function normalizePosition(position: unknown): DesktopPosition | null {

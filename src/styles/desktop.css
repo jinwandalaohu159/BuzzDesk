@@ -1,0 +1,355 @@
+/* Desktop shell, grid, tiles, icons, names and inline rename. */
+
+.desktop-shell {
+  position: fixed;
+  inset: 0;
+  overflow: auto;
+  width: 100vw;
+  height: 100vh;
+  outline: none;
+  background: rgba(0, 0, 0, 0.001);
+  scrollbar-width: none;
+  overscroll-behavior: contain;
+  touch-action: none;
+}
+
+.desktop-shell::-webkit-scrollbar {
+  width: 0;
+  height: 0;
+}
+
+.desktop-stage {
+  position: relative;
+  min-width: 100vw;
+  min-height: 100vh;
+  height: var(--desktop-content-height);
+  width: var(--desktop-content-width);
+  contain: layout paint style;
+  touch-action: none;
+}
+
+.desktop-grid {
+  position: absolute;
+  left: 0;
+  top: 0;
+  min-width: 100vw;
+  min-height: 100vh;
+  width: var(--desktop-content-width);
+  height: var(--desktop-content-height);
+  touch-action: none;
+}
+
+.selection-marquee {
+  position: fixed;
+  z-index: 70;
+  pointer-events: none;
+  border: 1px solid rgba(104, 178, 255, 0.92);
+  background: rgba(68, 151, 255, 0.22);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 8px 28px rgba(0, 62, 140, 0.16);
+  backdrop-filter: blur(1px);
+}
+
+.desktop-tile {
+  position: absolute;
+  width: 106px;
+  height: 124px;
+  border: 0;
+  padding: 8px 7px 6px;
+  color: white;
+  background: transparent;
+  border-radius: 16px;
+  cursor: default;
+  display: grid;
+  grid-template-rows: calc(var(--desktop-icon-shell-size) + 8px) 1fr;
+  justify-items: center;
+  align-items: center;
+  gap: 5px;
+  transform: translate3d(0, 0, 0);
+  will-change: transform;
+  backface-visibility: hidden;
+  contain: layout paint style;
+  touch-action: none;
+}
+
+.desktop-tile::before {
+  content: "";
+  position: absolute;
+  inset: 7px 10px 7px;
+  opacity: 0;
+  border-radius: 14px;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.08));
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  box-shadow: 0 6px 14px rgba(0, 0, 0, 0.2);
+  transition: opacity 130ms ease, transform 130ms ease;
+}
+
+.desktop-tile.is-selected::before,
+.desktop-tile:focus-visible::before {
+  opacity: 1;
+}
+
+.desktop-tile:focus-visible {
+  outline: 0;
+}
+
+/* Folder-to-be plate: grows behind the target icon while the dragged icon
+   hovers its centre, like the iOS folder preview. */
+.desktop-tile > .icon-shell::before {
+  content: "";
+  position: absolute;
+  inset: -10px;
+  z-index: -1;
+  border-radius: calc(var(--folder-cover-radius) + 7px);
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.16)),
+    rgba(255, 255, 255, 0.1);
+  border: 1px solid rgba(255, 255, 255, 0.36);
+  box-shadow: 0 12px 30px rgba(0, 0, 0, 0.18), inset 0 1px 0 rgba(255, 255, 255, 0.5);
+  opacity: 0;
+  transform: scale(.7);
+  transition:
+    opacity 140ms ease,
+    transform var(--spring-pop-duration, 320ms) var(--spring-pop, cubic-bezier(.2,1.3,.3,1));
+  pointer-events: none;
+}
+
+.desktop-tile.is-merge-target > .icon-shell::before {
+  opacity: 1;
+  transform: scale(1);
+}
+
+/* The dragged icon reached this icon's centre: a folder is about to form. */
+.desktop-tile.is-merge-armed > .icon-shell::before {
+  opacity: 0.6;
+  transform: scale(0.88);
+}
+
+.desktop-tile.is-merge-armed .icon-shell {
+  transform: scale(0.96);
+  transition-duration: 160ms;
+}
+
+.desktop-tile.is-trash-target > .icon-shell::before {
+  background:
+    linear-gradient(160deg, rgba(134, 239, 172, 0.42), rgba(74, 222, 128, 0.16)),
+    rgba(34, 197, 94, 0.12);
+  border-color: rgba(187, 247, 208, 0.42);
+}
+
+.desktop-tile.is-merge-target .icon-shell {
+  transform: translate3d(var(--merge-pull-x, 0px), var(--merge-pull-y, 0px), 0) scale(.92);
+  transition-duration: 120ms;
+}
+
+.desktop-tile:active .icon-shell,
+.folder-item:active .icon-shell {
+  transform: scale(.94);
+  transition-duration: 70ms;
+}
+
+.desktop-tile.is-opening::before {
+  opacity: 1;
+  transform: scale(.98);
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.1));
+}
+
+.desktop-tile.is-opening .icon-shell,
+.folder-item.is-opening .icon-shell {
+  animation: launch-pop 420ms cubic-bezier(.16,.9,.2,1);
+  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.32));
+}
+
+.desktop-tile.is-dragging {
+  z-index: 50;
+  pointer-events: none;
+  cursor: grabbing;
+  /* The pointer drives the tile directly; any transition would make it lag. */
+  transition: none !important;
+}
+
+.desktop-tile.is-reorder-preview {
+  transition: transform var(--spring-shuffle-duration, 300ms) var(--spring-shuffle, cubic-bezier(.2,.9,.25,1));
+}
+
+.desktop-tile.is-folder-open {
+  pointer-events: none;
+}
+
+.desktop-tile.is-folder-open .icon-shell {
+  opacity: 0;
+  transform: scale(.86);
+}
+
+.desktop-tile.is-folder-open .tile-name {
+  opacity: 0;
+  transform: translate3d(0, 4px, 0);
+}
+
+.desktop-tile.is-dragging .icon-shell,
+.floating-drag .icon-shell {
+  transform: scale(1.1);
+  filter: drop-shadow(0 18px 34px rgba(0, 0, 0, 0.32));
+  transition: transform var(--spring-pop-duration, 320ms) var(--spring-pop, cubic-bezier(.2,1.3,.3,1));
+}
+
+.desktop-tile.is-dragging .tile-name,
+.floating-drag .tile-name {
+  opacity: 0;
+}
+
+.desktop-shell.is-drag-active .desktop-tile::before,
+.desktop-shell.is-drag-active .folder-cover,
+.desktop-shell.is-drag-active .fallback-icon,
+.desktop-shell.is-drag-active .tile-rename {
+  backdrop-filter: none;
+}
+
+.desktop-shell.is-drag-active .app-icon,
+.desktop-shell.is-drag-active .icon-shell,
+.desktop-shell.is-drag-active .folder-cover,
+.desktop-shell.is-drag-active .merge-flight {
+  filter: none;
+}
+
+.icon-shell {
+  position: relative;
+  align-self: center;
+  width: var(--desktop-icon-shell-width, var(--desktop-icon-shell-size));
+  height: var(--desktop-icon-shell-height, var(--desktop-icon-shell-size));
+  display: grid;
+  place-items: center;
+  transition: opacity 150ms ease, transform 160ms cubic-bezier(.2,.9,.2,1), filter 160ms ease;
+  z-index: 1;
+}
+
+.app-icon {
+  width: var(--app-icon-size);
+  height: var(--app-icon-size);
+  border-radius: var(--app-icon-radius);
+  object-fit: contain;
+  image-rendering: auto;
+  filter: drop-shadow(0 8px 16px rgba(0, 0, 0, 0.28));
+}
+
+.fallback-icon {
+  width: var(--app-icon-size);
+  height: var(--app-icon-size);
+  border-radius: 16px;
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1)),
+    rgba(62, 82, 104, 0.48);
+  border: 1px solid rgba(255, 255, 255, 0.26);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 14px 26px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px);
+}
+
+.fallback-icon::before,
+.cover-fallback::before {
+  content: "";
+  width: 52%;
+  height: 52%;
+  border-radius: 8px;
+  background:
+    linear-gradient(180deg, rgba(255, 255, 255, 0.82), rgba(255, 255, 255, 0.42));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 8px 18px rgba(0, 0, 0, 0.16);
+}
+
+.fallback-directory::before {
+  width: 62%;
+  height: 44%;
+  border-radius: 7px;
+}
+
+.fallback-system::before {
+  width: 50%;
+  height: 50%;
+  border-radius: 50%;
+}
+
+.fallback-file::before {
+  width: 46%;
+  height: 58%;
+  border-radius: 6px 10px 6px 6px;
+}
+
+.folder-cover {
+  width: var(--folder-cover-width);
+  height: var(--folder-cover-height);
+  padding: var(--folder-cover-padding-y) var(--folder-cover-padding-x);
+  border-radius: var(--folder-cover-radius);
+  display: grid;
+  grid-template-columns: repeat(var(--folder-cover-columns, 3), 1fr);
+  grid-template-rows: repeat(var(--folder-cover-rows, 3), 1fr);
+  gap: var(--folder-cover-gap);
+  overflow: hidden;
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.42), rgba(255, 255, 255, 0.12)),
+    rgba(255, 255, 255, 0.14);
+  border: 1px solid rgba(255, 255, 255, 0.34);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.48), 0 16px 34px rgba(0, 0, 0, 0.2);
+  backdrop-filter: blur(16px) saturate(1.18);
+}
+
+.folder-cover img,
+.folder-cover .cover-fallback {
+  width: var(--folder-cover-mini-icon-size);
+  height: var(--folder-cover-mini-icon-size);
+  border-radius: var(--folder-cover-icon-radius);
+  object-fit: contain;
+  place-self: center;
+}
+
+.cover-fallback {
+  display: grid;
+  place-items: center;
+  position: relative;
+  overflow: hidden;
+  background:
+    linear-gradient(145deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.12)),
+    rgba(55, 72, 91, 0.42);
+}
+
+.tile-name {
+  position: relative;
+  align-self: start;
+  z-index: 1;
+  width: 100%;
+  max-height: var(--tile-name-max-height);
+  padding: 0 2px;
+  color: white;
+  font-size: var(--tile-name-font-size);
+  line-height: var(--tile-name-line-height);
+  text-align: center;
+  text-shadow: var(--text-shadow);
+  transform: translate3d(0, -8px, 0);
+  overflow: hidden;
+  display: -webkit-box;
+  -webkit-box-orient: vertical;
+  -webkit-line-clamp: 2;
+  word-break: break-word;
+  transition: opacity 150ms ease, transform 160ms cubic-bezier(.2,.9,.2,1);
+}
+
+.tile-rename {
+  position: relative;
+  z-index: 2;
+  width: 92%;
+  min-width: 0;
+  height: 24px;
+  border: 0;
+  outline: 0;
+  border-radius: 7px;
+  padding: 2px 6px 3px;
+  color: white;
+  font-size: 12px;
+  line-height: 18px;
+  text-align: center;
+  text-shadow: var(--text-shadow);
+  background: rgba(20, 26, 34, 0.54);
+  box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.26), 0 8px 18px rgba(0, 0, 0, 0.22);
+  backdrop-filter: blur(12px) saturate(1.14);
+}

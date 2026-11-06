@@ -7,6 +7,7 @@ import {
 } from "../settings/desktopSettings";
 import { createFlowGrid, layoutDesktopFlow, spanSize, tileSpan } from "./flow";
 import type { DesktopNode, DesktopPosition, DesktopSettings, FolderAppearanceSettings, LayoutSlot } from "../types";
+import { clamp } from "../shared/math";
 
 export const folderGrid = {
   itemWidth: 92,
@@ -27,6 +28,8 @@ export interface FolderPanelSize {
   itemHeight: number;
 }
 
+// Pure: no DOM. Used for real renders and for hypothetical previews (drag
+// make-room, settings preview) alike.
 export function computeDesktopLayout(
   nodes: DesktopNode[],
   viewportWidth: number,
@@ -35,6 +38,18 @@ export function computeDesktopLayout(
   viewportOffsetX = 0,
   viewportOffsetY = 0
 ): Map<string, LayoutSlot> {
+  return computeDesktopLayoutWithContent(nodes, viewportWidth, viewportHeight, settings, viewportOffsetX, viewportOffsetY).slots;
+}
+
+// The layout plus the size of the stage it needs (for --desktop-content-*).
+export function computeDesktopLayoutWithContent(
+  nodes: DesktopNode[],
+  viewportWidth: number,
+  viewportHeight: number,
+  settings: DesktopSettings,
+  viewportOffsetX = 0,
+  viewportOffsetY = 0
+): { slots: Map<string, LayoutSlot>; contentWidth: number; contentHeight: number } {
   if (settings.layoutMode === "free") {
     return computeFreeDesktopLayout(nodes, viewportWidth, viewportHeight, settings, viewportOffsetX, viewportOffsetY);
   }
@@ -46,12 +61,11 @@ export function computeDesktopLayout(
     viewportOffsetX,
     viewportOffsetY
   );
-  const stageWidth = Math.max(viewportWidth + viewportOffsetX * 2, contentWidth);
-  const stageHeight = Math.max(viewportHeight + viewportOffsetY * 2, contentHeight);
-  document.documentElement.style.setProperty("--desktop-content-width", `${stageWidth}px`);
-  document.documentElement.style.setProperty("--desktop-content-height", `${stageHeight}px`);
-
-  return slots;
+  return {
+    slots,
+    contentWidth: Math.max(viewportWidth + viewportOffsetX * 2, contentWidth),
+    contentHeight: Math.max(viewportHeight + viewportOffsetY * 2, contentHeight)
+  };
 }
 
 export function desktopIndexForPoint(
@@ -133,9 +147,6 @@ export function panelSizeFor(
   };
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
 
 function layoutDesktopNodes(
   nodes: DesktopNode[],
@@ -238,10 +249,7 @@ function computeFreeDesktopLayout(
     bottom = Math.max(bottom, slot.y + slot.height + viewportOffsetY);
   }
 
-  document.documentElement.style.setProperty("--desktop-content-width", `${right}px`);
-  document.documentElement.style.setProperty("--desktop-content-height", `${bottom}px`);
-
-  return slots;
+  return { slots, contentWidth: right, contentHeight: bottom };
 }
 
 function clampFreeLayoutPosition(

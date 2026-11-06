@@ -1,0 +1,188 @@
+/* Update progress (settings row) and the update toast. */
+
+/* --- Update progress (settings row) --- */
+.settings-update-progress {
+  position: relative;
+  height: 4px;
+  margin-top: 10px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: var(--settings-slider-track);
+}
+
+.settings-update-progress > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #3b82f6, #8b5cf6);
+  transition: transform 160ms linear;
+}
+
+.settings-update-progress.is-indeterminate > span {
+  transform: scaleX(.3) !important;
+  animation: update-progress-slide 1.1s ease-in-out infinite;
+}
+
+/* --- Update toast --- */
+.update-toast {
+  position: fixed;
+  top: 40px;
+  right: 40px;
+  z-index: 220;
+  width: 336px;
+  display: grid;
+  gap: 12px;
+  padding: 16px 16px 14px;
+  overflow: hidden;
+  border-radius: 20px;
+  color: #f8fafc;
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.18), rgba(255, 255, 255, 0.04) 52%),
+    rgba(22, 26, 34, 0.86);
+  border: 1px solid rgba(255, 255, 255, 0.16);
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+  pointer-events: auto;
+  animation: update-toast-in 420ms cubic-bezier(.2, .9, .2, 1) both;
+  transform-origin: top right;
+}
+
+.update-toast.is-leaving {
+  animation: update-toast-out 220ms cubic-bezier(.4, 0, 1, 1) forwards;
+  pointer-events: none;
+}
+
+.update-toast-header {
+  display: grid;
+  gap: 3px;
+}
+
+.update-toast-header strong {
+  font-size: 14px;
+  font-weight: 600;
+  line-height: 19px;
+}
+
+.update-toast-detail {
+  font-size: 12px;
+  line-height: 17px;
+  color: rgba(248, 250, 252, 0.7);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-toast-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.update-toast-button {
+  min-height: 30px;
+  padding: 0 14px;
+  border: 0;
+  border-radius: 999px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #f8fafc;
+  cursor: pointer;
+  transition: transform 120ms ease, background 120ms ease;
+}
+
+.update-toast-button:active {
+  transform: scale(.96);
+}
+
+.update-toast-button.is-primary {
+  background: linear-gradient(180deg, #4f94ff, #2563eb);
+  box-shadow: 0 8px 18px rgba(37, 99, 235, 0.32), inset 0 1px 0 rgba(255, 255, 255, 0.24);
+}
+
+.update-toast-button.is-secondary {
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.update-toast-button.is-secondary:hover {
+  background: rgba(255, 255, 255, 0.18);
+}
+
+.update-toast-button.is-compact {
+  justify-self: end;
+}
+
+.update-toast-track {
+  position: relative;
+  height: 5px;
+  border-radius: 999px;
+  overflow: hidden;
+  background: rgba(255, 255, 255, 0.12);
+}
+
+.update-toast-track > span {
+  position: absolute;
+  inset: 0;
+  border-radius: inherit;
+  transform-origin: left center;
+  background: linear-gradient(90deg, #60a5fa, #a78bfa);
+  box-shadow: 0 0 10px rgba(96, 165, 250, 0.5);
+  transition: transform 160ms linear;
+}
+
+.update-toast-track.is-indeterminate > span {
+  transform: scaleX(.3) !important;
+  animation: update-progress-slide 1.1s ease-in-out infinite;
+}
+
+.update-toast-percent {
+  justify-self: end;
+  margin-top: -6px;
+  font-size: 11px;
+  color: rgba(248, 250, 252, 0.62);
+  font-variant-numeric: tabular-nums;
+}
+
+.update-toast-countdown {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  transform-origin: left center;
+  background: rgba(255, 255, 255, 0.32);
+  animation: update-toast-countdown linear forwards;
+}
+
+.update-toast.is-error {
+  border-color: rgba(251, 146, 60, 0.4);
+}
+
+@keyframes update-toast-in {
+  from {
+    opacity: 0;
+    transform: translate3d(0, -10px, 0) scale(.96);
+  }
+}
+
+@keyframes update-toast-out {
+  to {
+    opacity: 0;
+    transform: translate3d(0, -6px, 0) scale(.97);
+  }
+}
+
+@keyframes update-toast-countdown {
+  from {
+    transform: scaleX(1);
+  }
+  to {
+    transform: scaleX(0);
+  }
+}
+
+@keyframes update-progress-slide {
+  from {
+    translate: -110% 0;
+  }
+  to {
+    translate: 360% 0;
+  }
+}

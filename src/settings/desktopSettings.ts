@@ -40,6 +40,7 @@ export const defaultDesktopSettings: DesktopSettings = {
   appPriority: "aboveNormal",
   settingsDarkMode: false,
   startWithWindows: false,
+  autoUpdate: true,
   systemIcons: { ...defaultDesktopSystemIcons },
   contextMenu: {
     items: []
@@ -92,6 +93,7 @@ export function normalizeDesktopSettings(settings?: Partial<DesktopSettings> | n
     appPriority: normalizeAppPriority(settings?.appPriority),
     settingsDarkMode: settings?.settingsDarkMode === true,
     startWithWindows: settings?.startWithWindows === true,
+    autoUpdate: settings?.autoUpdate !== false,
     systemIcons: normalizeSystemIcons(settings?.systemIcons),
     contextMenu: normalizeContextMenuSettings(settings?.contextMenu),
     appIconSize: clampNumber(settings?.appIconSize, 48, 76, defaultDesktopSettings.appIconSize),
@@ -318,25 +320,6 @@ export function folderTileMetrics(
 
 export function desktopNodeTileMetrics(settings: DesktopSettings, node: DesktopNode) {
   return node.type === "folder" ? folderTileMetrics(settings, node.appearance) : desktopTileMetrics(settings);
-}
-
-export function shouldIsolateDesktopNode(settings: DesktopSettings, node: DesktopNode) {
-  if (node.type !== "folder") {
-    return false;
-  }
-
-  const appearance = normalizeFolderAppearance(node.appearance);
-  if (
-    appearance.folderPanelColumns !== defaultFolderAppearance.folderPanelColumns ||
-    appearance.folderPanelRows !== defaultFolderAppearance.folderPanelRows ||
-    appearance.folderCoverSize !== defaultFolderAppearance.folderCoverSize
-  ) {
-    return true;
-  }
-
-  const base = desktopTileMetrics(settings);
-  const folder = folderTileMetrics(settings, node.appearance);
-  return folder.width > base.width || folder.height > base.height;
 }
 
 export function fitDesktopSettings(

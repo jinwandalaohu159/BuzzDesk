@@ -1,0 +1,52 @@
+/* Wallpaper glass surfaces. */
+
+/* --- Wallpaper glass ---
+   The layer window is transparent, so backdrop-filter never sees the desktop.
+   --wallpaper-glass is a snapshot of the desktop as the user sees it,
+   pre-blurred and sized to the window; each surface paints it aligned to where
+   it sits on screen. */
+
+/* While the desktop is being snapshotted our own content must not be in it. */
+body {
+  transition: opacity 0.22s ease;
+}
+
+html.is-capturing-backdrop body {
+  opacity: 0 !important;
+  transition: none !important;
+}
+.has-wallpaper-glass .folder-backdrop {
+  background:
+    linear-gradient(rgba(12, 16, 22, 0.14), rgba(12, 16, 22, 0.14)),
+    var(--wallpaper-glass) 0 0 / var(--wallpaper-width) var(--wallpaper-height) no-repeat;
+}
+
+.has-wallpaper-glass .folder-panel {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.3), rgba(255, 255, 255, 0.12) 60%, rgba(255, 255, 255, 0.16)),
+    rgba(255, 255, 255, 0.06);
+  border-color: rgba(255, 255, 255, 0.34);
+  box-shadow: 0 30px 80px rgba(0, 0, 0, 0.22), inset 0 1px 0 rgba(255, 255, 255, 0.52);
+  backdrop-filter: none;
+}
+
+.has-wallpaper-glass .folder-cover {
+  background:
+    linear-gradient(155deg, rgba(255, 255, 255, 0.36), rgba(255, 255, 255, 0.1)),
+    var(--wallpaper-glass) var(--glass-x, 0px) var(--glass-y, 0px) / var(--wallpaper-width) var(--wallpaper-height) no-repeat;
+  border-color: rgba(255, 255, 255, 0.4);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.55), 0 14px 30px rgba(0, 0, 0, 0.2);
+  backdrop-filter: none;
+}
+
+.has-wallpaper-glass .fallback-icon,
+.has-wallpaper-glass .tile-rename {
+  backdrop-filter: none;
+}
+
+.has-wallpaper-glass .update-toast {
+  background:
+    linear-gradient(160deg, rgba(255, 255, 255, 0.24), rgba(255, 255, 255, 0.06) 60%),
+    linear-gradient(rgba(18, 22, 30, 0.38), rgba(18, 22, 30, 0.38)),
+    var(--wallpaper-glass) right -40px top -40px / var(--wallpaper-width) var(--wallpaper-height) no-repeat;
+}

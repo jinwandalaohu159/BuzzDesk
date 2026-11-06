@@ -1,0 +1,118 @@
+/* Settings form controls: segmented buttons, sliders, focus rings. */
+
+.settings-segmented {
+  display: grid;
+  grid-auto-columns: minmax(0, 1fr);
+  grid-auto-flow: column;
+  gap: 4px;
+  padding: 4px;
+  border-radius: 14px;
+  background: var(--settings-control-bg);
+  box-shadow: none;
+}
+
+.settings-segmented button {
+  height: 34px;
+  border: 0;
+  border-radius: 10px;
+  color: var(--settings-muted-text);
+  font-size: 13px;
+  background: transparent;
+}
+
+.settings-segmented button:hover:not(.is-active) {
+  color: var(--settings-title-text);
+}
+
+.settings-segmented button.is-active {
+  color: var(--settings-title-text);
+  background: var(--settings-surface-bg);
+  box-shadow: 0 6px 18px rgba(15, 23, 42, 0.1);
+}
+
+.settings-control button {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  padding: 0;
+  border: 0;
+  border-radius: 12px;
+  color: var(--settings-panel-text);
+  font-size: 18px;
+  line-height: 1;
+  background: var(--settings-control-bg);
+  box-shadow: none;
+}
+
+.settings-control button:hover {
+  background: var(--settings-control-hover-bg);
+}
+
+.settings-slider {
+  appearance: none;
+  -webkit-appearance: none;
+  width: 100%;
+  height: 28px;
+  margin: 0;
+  border-radius: 999px;
+  cursor: pointer;
+  background: linear-gradient(
+      90deg,
+      var(--settings-slider-fill) 0 var(--setting-progress),
+      var(--settings-slider-track) var(--setting-progress) 100%
+    )
+    0 50% / 100% 6px no-repeat;
+}
+
+.settings-slider::-webkit-slider-runnable-track {
+  height: 6px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+}
+
+.settings-slider::-webkit-slider-thumb {
+  -webkit-appearance: none;
+  width: 22px;
+  height: 22px;
+  margin-top: -8px;
+  border-radius: 50%;
+  border: 3px solid var(--settings-thumb-border);
+  background: var(--settings-slider-fill);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.settings-slider::-moz-range-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--settings-slider-track);
+  box-shadow: none;
+}
+
+.settings-slider::-moz-range-progress {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--settings-slider-fill);
+}
+
+.settings-slider::-moz-range-thumb {
+  width: 22px;
+  height: 22px;
+  border-radius: 50%;
+  border: 3px solid var(--settings-thumb-border);
+  background: var(--settings-slider-fill);
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.18);
+}
+
+.settings-slider:focus-visible,
+.settings-priority-trigger:focus-visible,
+.settings-priority-popover button:focus-visible,
+.settings-update-check:focus-visible,
+.settings-update-primary:focus-visible,
+.settings-toggle:focus-visible,
+.settings-nav-row:focus-visible,
+.settings-back:focus-visible {
+  outline: 2px solid var(--settings-focus-outline);
+  outline-offset: 3px;
+}

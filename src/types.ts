@@ -54,8 +54,8 @@ export interface UpdateCheckState {
   installerUrl?: string | null;
   installerName?: string | null;
   installing?: boolean;
+  downloadProgress?: number | null;
   error?: string | null;
-  checkedAt?: number | null;
 }
 
 export interface WindowBounds {
@@ -116,6 +116,7 @@ export interface DesktopSettings {
   appPriority: AppProcessPriority;
   settingsDarkMode: boolean;
   startWithWindows: boolean;
+  autoUpdate: boolean;
   systemIcons: DesktopSystemIconSettings;
   contextMenu: DesktopContextMenuSettings;
   appIconSize: number;

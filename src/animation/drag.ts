@@ -1,3 +1,4 @@
+import { clamp, roundFrameValue } from "../shared/math";
 const freeDragScale = 1.035;
 const mergeTargetScale = 0.88;
 const mergeMagnetStrength = 0.22;
@@ -94,10 +95,4 @@ function edgeStrength(distance: number) {
   return Math.round(ratio * ratio * autoScrollMaxSpeed);
 }
 
-function clamp(value: number, min: number, max: number) {
-  return Math.min(max, Math.max(min, value));
-}
 
-function roundFrameValue(value: number) {
-  return Math.round(value * 10) / 10;
-}

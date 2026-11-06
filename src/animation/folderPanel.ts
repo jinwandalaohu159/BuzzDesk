@@ -1,3 +1,5 @@
+import { springs } from "./spring";
+
 export interface FolderCloseOrigin {
   x: number;
   y: number;
@@ -23,26 +25,33 @@ export async function playFolderOpen(
 
   await waitForAnimationFrame();
 
+  // Transform rides the spring; opacity resolves quickly so the panel reads as
+  // one solid object growing out of the folder icon.
   const panelAnimation = panel.animate(
     [
-      { opacity: 0, transform: from },
-      { offset: 0.62, opacity: 1, transform: "translate3d(-50%, -50%, 0) scale(1.018)" },
-      { opacity: 1, transform: to }
+      { transform: from },
+      { transform: to }
     ],
     {
-      duration: 260,
-      easing: "cubic-bezier(.16,.92,.18,1)",
+      duration: springs.open.duration,
+      easing: springs.open.easing,
       fill: "forwards"
     }
   );
+  const panelFade = panel.animate([{ opacity: 0 }, { opacity: 1 }], {
+    duration: 140,
+    easing: "ease-out",
+    fill: "forwards",
+    composite: "replace"
+  });
 
   const backdropAnimation = backdrop?.animate([{ opacity: 0 }, { opacity: 1 }], {
-    duration: 180,
-    easing: "ease-out",
+    duration: 240,
+    easing: "cubic-bezier(.2,.8,.2,1)",
     fill: "forwards"
   });
 
-  await Promise.allSettled([panelAnimation.finished, backdropAnimation?.finished]);
+  await Promise.allSettled([panelAnimation.finished, panelFade.finished, backdropAnimation?.finished]);
   panel.style.opacity = "1";
   panel.style.transform = to;
 }
@@ -69,19 +78,19 @@ export async function playFolderClose(
   const panelAnimation = panel.animate(
     [
       { opacity: 1, transform: center },
-      { offset: 0.68, opacity: 0.86, transform: mid },
+      { offset: 0.6, opacity: 0.9, transform: mid },
       { opacity: 0, transform: target }
     ],
     {
-      duration: 240,
-      easing: "cubic-bezier(.22,.82,.2,1)",
+      duration: 300,
+      easing: "cubic-bezier(.3,.7,.2,1)",
       fill: "forwards"
     }
   );
 
   const backdropAnimation = backdrop?.animate([{ opacity: 1 }, { opacity: 0 }], {
-    duration: 180,
-    easing: "ease",
+    duration: 240,
+    easing: "cubic-bezier(.4,0,.2,1)",
     fill: "forwards"
   });
 

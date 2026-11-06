@@ -1,6 +1,6 @@
 {
   "identifier": "default",
   "description": "Default permissions for the BuzzDesk window",
-  "windows": ["main"],
+  "windows": ["main", "updater"],
   "permissions": ["core:default"]
 }
