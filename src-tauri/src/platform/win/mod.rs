@@ -12,9 +12,7 @@ use std::ffi::{c_void, OsStr};
 use std::fs;
 use std::os::windows::ffi::OsStrExt;
 use std::os::windows::fs::MetadataExt;
-use std::os::windows::process::CommandExt;
 use std::path::{Path, PathBuf};
-use std::process::Command;
 use std::sync::{Mutex, OnceLock};
 use windows::core::{w, Interface, BOOL, PCSTR, PCWSTR, PSTR, PWSTR};
 use windows::Win32::Foundation::{

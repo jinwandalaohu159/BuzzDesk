@@ -255,153 +255,91 @@ export class SettingsPanel {
     return desktopContextMenuPool(this.app.menus.cachedDesktopNativeMenuItems ?? []).find((item) => item.key === parentKey)?.label ?? null;
   }
 
-  onSettingsClick(event: MouseEvent) {
-    if (this.app.consumeSuppressedClick()) {
-      event.preventDefault();
-      event.stopPropagation();
-      return;
-    }
-
-    const close = (event.target as HTMLElement).closest("[data-settings-close]");
-    const reset = (event.target as HTMLElement).closest("[data-settings-reset]");
-    const viewButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-settings-view]");
-    const stepButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-step]");
-    const layoutModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-layout-mode]");
-    const darkModeButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-dark-mode]");
-    const startupButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-start-with-windows]");
-    const autoUpdateButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-auto-update]");
-    const systemIconAddTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add-trigger]");
-    const systemIconAddButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-add]");
-    const systemIconRemoveButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-system-icon-remove]");
-    const contextMenuSubmenuTarget = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-context-menu-submenu]");
-    const contextMenuPlacementButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-placement]");
-    const contextMenuSeparatorButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-separator]");
-    const contextMenuResetButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-context-menu-reset]");
-    const priorityTrigger = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-priority-trigger]");
-    const priorityButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-app-priority]");
-    const priorityPopover = (event.target as HTMLElement).closest<HTMLElement>("[data-setting-priority-popover]");
-    const settingsActionButton = (event.target as HTMLElement).closest<HTMLButtonElement>("[data-setting-action]");
-
-    if (!priorityTrigger && !priorityPopover && this.settingsPriorityMenuOpen) {
-      this.settingsPriorityMenuOpen = false;
-      this.renderSettingsPriorityMenu();
-    }
-
-    if (reset) {
+  // Click handlers by the element they answer, tried in order against the
+  // clicked element's ancestors; the first match wins. A handler returns
+  // `false` when the element carried no usable value, so later rows still get
+  // their turn.
+  private readonly clickHandlers: Array<[selector: string, handle: (element: HTMLElement) => boolean | void]> = [
+    ["[data-settings-reset]", () => {
       this.resetCurrentSettingsView();
-      return;
-    }
-
-    const nextSettingsView = viewButton?.dataset.settingsView;
-    if (isSettingsView(nextSettingsView)) {
-      if (this.settingsView === "contextMenu" && this.settingsContextMenuParentKey && nextSettingsView === "main") {
-        this.app.settingsActions.cancelSettingsPreview();
-        this.settingsPriorityMenuOpen = false;
-        this.settingsContextMenuParentKey = null;
-        this.renderSettingsLayer();
-        return;
+    }],
+    ["[data-settings-view]", (element) => this.openSettingsView(element.dataset.settingsView)],
+    ["[data-setting-layout-mode]", (element) => {
+      const mode = element.dataset.settingLayoutMode;
+      if (mode !== "auto" && mode !== "free") {
+        return false;
       }
-
       this.app.settingsActions.cancelSettingsPreview();
-      this.settingsPriorityMenuOpen = false;
-      this.settingsSystemIconAddOpen = false;
-      this.settingsContextMenuParentKey = null;
-      this.settingsView = nextSettingsView;
-      this.renderSettingsLayer();
-      if (nextSettingsView === "system") {
-        this.app.desktopSync.scheduleFullDesktopItemLoad(120);
-      } else if (nextSettingsView === "contextMenu") {
-        void this.refreshContextMenuSettingsPool();
-      }
-      return;
-    }
-
-    if (layoutModeButton?.dataset.settingLayoutMode === "auto" || layoutModeButton?.dataset.settingLayoutMode === "free") {
-      this.app.settingsActions.cancelSettingsPreview();
-      this.app.settingsActions.switchDesktopLayoutMode(layoutModeButton.dataset.settingLayoutMode);
-      return;
-    }
-
-    if (darkModeButton) {
+      this.app.settingsActions.switchDesktopLayoutMode(mode);
+    }],
+    ["[data-setting-dark-mode]", (element) => {
       this.app.settingsActions.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       const nextEnabled = this.app.store.getSettings().settingsDarkMode !== true;
-      this.playSettingsToggleGhost(darkModeButton, nextEnabled, nextEnabled);
+      this.playSettingsToggleGhost(element as HTMLButtonElement, nextEnabled, nextEnabled);
       this.app.store.updateSettings({ settingsDarkMode: nextEnabled });
-      return;
-    }
-
-    if (autoUpdateButton) {
+    }],
+    ["[data-setting-auto-update]", (element) => {
+      const button = element as HTMLButtonElement;
       this.app.settingsActions.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       const nextEnabled = this.app.store.getSettings().autoUpdate !== true;
-      this.playSettingsToggleGhost(autoUpdateButton, nextEnabled);
-      this.updateSettingsToggleRow(autoUpdateButton, nextEnabled);
+      this.playSettingsToggleGhost(button, nextEnabled);
+      this.updateSettingsToggleRow(button, nextEnabled);
       withoutRender(this.app, () => this.app.store.updateSettings({ autoUpdate: nextEnabled }));
       if (nextEnabled) {
         void this.app.updates.runAutomaticUpdateCheck("background");
       }
-      return;
-    }
-
-    if (startupButton) {
+    }],
+    ["[data-setting-start-with-windows]", (element) => {
+      const button = element as HTMLButtonElement;
       this.app.settingsActions.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       const nextEnabled = this.app.store.getSettings().startWithWindows !== true;
-      this.playSettingsToggleGhost(startupButton, nextEnabled);
-      this.updateSettingsToggleRow(startupButton, nextEnabled);
+      this.playSettingsToggleGhost(button, nextEnabled);
+      this.updateSettingsToggleRow(button, nextEnabled);
       this.updateStartupSettingState(nextEnabled);
       void setStartupEnabled(nextEnabled).catch((error) => {
         console.warn("Unable to update startup setting", error);
-        this.updateSettingsToggleRow(startupButton, !nextEnabled);
+        this.updateSettingsToggleRow(button, !nextEnabled);
         this.updateStartupSettingState(!nextEnabled);
       });
-      return;
-    }
-
-    if (systemIconAddTrigger) {
+    }],
+    ["[data-setting-system-icon-add-trigger]", () => {
       this.settingsPriorityMenuOpen = false;
       this.settingsSystemIconAddOpen = !this.settingsSystemIconAddOpen;
       this.renderSettingsLayer();
       this.app.desktopSync.scheduleFullDesktopItemLoad(80);
-      return;
-    }
-
-    if (systemIconAddButton) {
-      const systemIconId = systemIconAddButton.dataset.settingSystemIconAdd;
+    }],
+    ["[data-setting-system-icon-add]", (element) => {
+      const systemIconId = element.dataset.settingSystemIconAdd;
       if (isDesktopSystemIconId(systemIconId)) {
         this.app.settingsActions.cancelSettingsPreview();
         this.settingsPriorityMenuOpen = false;
         this.settingsSystemIconAddOpen = false;
         this.app.settingsActions.setSystemIconVisibility(systemIconId, true);
       }
-      return;
-    }
-
-    if (systemIconRemoveButton) {
-      const systemIconId = systemIconRemoveButton.dataset.settingSystemIconRemove;
+    }],
+    ["[data-setting-system-icon-remove]", (element) => {
+      const systemIconId = element.dataset.settingSystemIconRemove;
       if (isDesktopSystemIconId(systemIconId)) {
         this.app.settingsActions.cancelSettingsPreview();
         this.settingsPriorityMenuOpen = false;
         this.app.settingsActions.setSystemIconVisibility(systemIconId, false);
       }
-      return;
-    }
-
-    if (contextMenuSubmenuTarget) {
-      const key = contextMenuSubmenuTarget.dataset.settingContextMenuSubmenu;
+    }],
+    ["[data-setting-context-menu-submenu]", (element) => {
+      const key = element.dataset.settingContextMenuSubmenu;
       if (key) {
         this.app.settingsActions.cancelSettingsPreview();
         this.settingsPriorityMenuOpen = false;
         this.settingsContextMenuParentKey = key;
         this.renderSettingsLayer();
       }
-      return;
-    }
-
-    if (contextMenuPlacementButton) {
-      const key = contextMenuPlacementButton.dataset.menuKey;
-      const placement = contextMenuPlacementButton.dataset.settingContextMenuPlacement;
+    }],
+    ["[data-setting-context-menu-placement]", (element) => {
+      const key = element.dataset.menuKey;
+      const placement = element.dataset.settingContextMenuPlacement;
       if (key && isContextMenuPlacement(placement)) {
         this.app.settingsActions.cancelSettingsPreview();
         this.app.store.updateSettings({
@@ -414,11 +352,9 @@ export class SettingsPanel {
           )
         });
       }
-      return;
-    }
-
-    if (contextMenuSeparatorButton) {
-      const key = contextMenuSeparatorButton.dataset.menuKey;
+    }],
+    ["[data-setting-context-menu-separator]", (element) => {
+      const key = element.dataset.menuKey;
       if (key) {
         this.app.settingsActions.cancelSettingsPreview();
         this.app.store.updateSettings({
@@ -430,34 +366,29 @@ export class SettingsPanel {
           )
         });
       }
-      return;
-    }
-
-    if (contextMenuResetButton) {
+    }],
+    ["[data-setting-context-menu-reset]", () => {
       this.app.settingsActions.cancelSettingsPreview();
       this.app.settingsActions.resetContextMenuCustomization();
-      return;
-    }
-
-    if (priorityTrigger) {
+    }],
+    ["[data-setting-priority-trigger]", () => {
       this.settingsPriorityMenuOpen = !this.settingsPriorityMenuOpen;
       this.renderSettingsPriorityMenu();
-      return;
-    }
-
-    if (priorityButton) {
-      const appPriority = priorityButton.dataset.settingAppPriority;
+    }],
+    ["[data-setting-app-priority]", (element) => {
+      const appPriority = element.dataset.settingAppPriority;
       if (isAppProcessPriority(appPriority)) {
         this.app.settingsActions.cancelSettingsPreview();
         this.settingsPriorityMenuOpen = false;
-        this.app.settingsActions.commitAppPriority(appPriority, priorityButton.textContent?.trim() ?? "");
+        this.app.settingsActions.commitAppPriority(appPriority, element.textContent?.trim() ?? "");
         void setAppProcessPriority(appPriority);
       }
-      return;
-    }
-
-    const settingsAction = settingsActionButton?.dataset.settingAction;
-    if (settingsAction === "checkUpdates" || settingsAction === "updateLatest") {
+    }],
+    ["[data-setting-action]", (element) => {
+      const settingsAction = element.dataset.settingAction;
+      if (settingsAction !== "checkUpdates" && settingsAction !== "updateLatest") {
+        return false;
+      }
       this.app.settingsActions.cancelSettingsPreview();
       this.settingsPriorityMenuOpen = false;
       if (settingsAction === "checkUpdates") {
@@ -465,31 +396,78 @@ export class SettingsPanel {
       } else {
         void this.app.updates.confirmAndOpenLatestUpdate();
       }
-      return;
-    }
-
-    if (stepButton) {
-      const key = stepButton.dataset.settingKey;
-      const step = Number(stepButton.dataset.settingStep);
-      const min = Number(stepButton.dataset.settingMin);
-      const max = Number(stepButton.dataset.settingMax);
+    }],
+    ["[data-setting-step]", (element) => {
+      const key = element.dataset.settingKey;
+      const step = Number(element.dataset.settingStep);
+      const min = Number(element.dataset.settingMin);
+      const max = Number(element.dataset.settingMax);
       const current = this.app.settingsActions.getSettingsValueSource();
       if (key && isDesktopSettingKey(key) && Number.isFinite(step) && Number.isFinite(min) && Number.isFinite(max)) {
         const value = Math.min(max, Math.max(min, current[key] + step));
         this.app.settingsActions.commitSettingValue(key, value);
       }
+    }],
+    ["[data-settings-close]", () => {
+      this.app.settingsActions.cancelSettingsPreview();
+      this.settingsOpen = false;
+      this.settingsView = "main";
+      this.settingsPriorityMenuOpen = false;
+      this.renderSettingsLayer();
+    }]
+  ];
+
+  onSettingsClick(event: MouseEvent) {
+    if (this.app.consumeSuppressedClick()) {
+      event.preventDefault();
+      event.stopPropagation();
       return;
     }
 
-    if (!close) {
-      return;
+    const target = event.target as HTMLElement;
+    // Any click outside the priority menu closes it.
+    if (
+      !target.closest("[data-setting-priority-trigger]") &&
+      !target.closest("[data-setting-priority-popover]") &&
+      this.settingsPriorityMenuOpen
+    ) {
+      this.settingsPriorityMenuOpen = false;
+      this.renderSettingsPriorityMenu();
+    }
+
+    for (const [selector, handle] of this.clickHandlers) {
+      const element = target.closest<HTMLElement>(selector);
+      if (element && handle(element) !== false) {
+        return;
+      }
+    }
+  }
+
+  private openSettingsView(nextSettingsView: string | undefined) {
+    if (!isSettingsView(nextSettingsView)) {
+      return false;
+    }
+
+    if (this.settingsView === "contextMenu" && this.settingsContextMenuParentKey && nextSettingsView === "main") {
+      this.app.settingsActions.cancelSettingsPreview();
+      this.settingsPriorityMenuOpen = false;
+      this.settingsContextMenuParentKey = null;
+      this.renderSettingsLayer();
+      return true;
     }
 
     this.app.settingsActions.cancelSettingsPreview();
-    this.settingsOpen = false;
-    this.settingsView = "main";
     this.settingsPriorityMenuOpen = false;
+    this.settingsSystemIconAddOpen = false;
+    this.settingsContextMenuParentKey = null;
+    this.settingsView = nextSettingsView;
     this.renderSettingsLayer();
+    if (nextSettingsView === "system") {
+      this.app.desktopSync.scheduleFullDesktopItemLoad(120);
+    } else if (nextSettingsView === "contextMenu") {
+      void this.refreshContextMenuSettingsPool();
+    }
+    return true;
   }
 
   private resetCurrentSettingsView() {

@@ -2,7 +2,7 @@
 // contract (`invoke("scan_desktop_items")` etc.); keep them stable.
 //
 // Tauri runs synchronous commands on the main (UI) thread. Anything that hits
-// the disk, enumerates the shell or spawns schtasks/reg is `async` and runs on
+// the disk, enumerates the shell or talks to Task Scheduler / the registry is `async` and runs on
 // the blocking pool so the desktop never stalls. Commands that drive native UI
 // owned by the layer window (context menus, window parenting, icon visibility)
 // stay synchronous on the main thread.

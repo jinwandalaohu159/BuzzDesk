@@ -1,7 +1,5 @@
 import { clamp, roundFrameValue } from "../shared/math";
-const freeDragScale = 1.035;
-const mergeTargetScale = 0.88;
-const mergeMagnetStrength = 0.22;
+const mergeTargetScale = 0.95;
 const targetPullStrength = 0.035;
 const targetPullLimit = 5;
 const autoScrollEdge = 76;
@@ -19,8 +17,6 @@ export interface DragFrameInput {
   width: number;
   height: number;
   targetRect: DOMRect | null;
-  targetLayoutOffsetX?: number;
-  targetLayoutOffsetY?: number;
 }
 
 export interface DragFrameTransform {
@@ -31,30 +27,22 @@ export interface DragFrameTransform {
   targetPullY: number;
 }
 
+// The dragged icon stays exactly under the pointer, always (no magnet toward a
+// merge target: that made it drift away from the hand). Over a merge target it
+// only dips slightly, and the target answers with a small pull toward it.
 export function dragFrameTransform(input: DragFrameInput): DragFrameTransform {
-  const dx = input.currentX - input.startX;
-  const dy = input.currentY - input.startY;
-  const followX = input.baseX + dx + (input.sourceLayoutOffsetX ?? 0);
-  const followY = input.baseY + dy + (input.sourceLayoutOffsetY ?? 0);
+  const x = input.baseX + (input.currentX - input.startX) + (input.sourceLayoutOffsetX ?? 0);
+  const y = input.baseY + (input.currentY - input.startY) + (input.sourceLayoutOffsetY ?? 0);
 
   if (!input.targetRect) {
-    return {
-      x: followX,
-      y: followY,
-      scale: freeDragScale,
-      targetPullX: 0,
-      targetPullY: 0
-    };
+    return { x, y, scale: 1, targetPullX: 0, targetPullY: 0 };
   }
 
-  const targetX = input.targetRect.left + (input.targetLayoutOffsetX ?? 0) + input.targetRect.width / 2 - input.width / 2;
-  const targetY = input.targetRect.top + (input.targetLayoutOffsetY ?? 0) + input.targetRect.height / 2 - input.height / 2;
   const centerX = input.targetRect.left + input.targetRect.width / 2;
   const centerY = input.targetRect.top + input.targetRect.height / 2;
-
   return {
-    x: followX + (targetX - followX) * mergeMagnetStrength,
-    y: followY + (targetY - followY) * mergeMagnetStrength,
+    x,
+    y,
     scale: mergeTargetScale,
     targetPullX: clamp((input.currentX - centerX) * targetPullStrength, -targetPullLimit, targetPullLimit),
     targetPullY: clamp((input.currentY - centerY) * targetPullStrength, -targetPullLimit, targetPullLimit)

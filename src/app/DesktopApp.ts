@@ -39,6 +39,9 @@ import { RenameController } from "./desktop/renameController";
 import { DragController } from "./drag/dragController";
 import { DragReorder } from "./drag/dragReorder";
 import { DragMerge } from "./drag/dragMerge";
+import { MergeCommit } from "./drag/dragMergeCommit";
+import { AutoReorder } from "./drag/dragAutoReorder";
+import { FreeReorder } from "./drag/dragFreeReorder";
 import { FolderPanel } from "./folder/folderPanel";
 import { FolderInput } from "./folder/folderInput";
 import { SettingsPanel } from "./settings/settingsPanel";
@@ -93,7 +96,10 @@ export class DesktopApp {
   readonly rename: RenameController = new RenameController(this);
   readonly dragging: DragController = new DragController(this);
   readonly reorder: DragReorder = new DragReorder(this);
+  readonly autoReorder: AutoReorder = new AutoReorder(this);
+  readonly freeReorder: FreeReorder = new FreeReorder(this);
   readonly merge: DragMerge = new DragMerge(this);
+  readonly mergeCommit: MergeCommit = new MergeCommit(this);
   readonly folder: FolderPanel = new FolderPanel(this);
   readonly folderInput: FolderInput = new FolderInput(this);
   readonly settings: SettingsPanel = new SettingsPanel(this);
@@ -335,7 +341,7 @@ export class DesktopApp {
   }
 
   resumeDeferredRender() {
-    if (this.renderDeferred && !this.dragging.drag && this.merge.trashInFlight === 0) {
+    if (this.renderDeferred && !this.dragging.drag && this.mergeCommit.trashInFlight === 0) {
       this.render();
     }
   }
@@ -351,7 +357,7 @@ export class DesktopApp {
     // the drag owns the tiles' transforms, classes and elements; rebuilding
     // them now would detach the dragged tile or snap it home. Whatever asked
     // (a resize, an arrow key, a scan) is caught up when the drag ends.
-    if (this.dragging.drag || this.merge.trashInFlight > 0) {
+    if (this.dragging.drag || this.mergeCommit.trashInFlight > 0) {
       this.renderDeferred = true;
       return;
     }
@@ -517,7 +523,7 @@ export class DesktopApp {
   private isHardRefreshInteractionBusy() {
     return Boolean(
       this.dragging.drag ||
-        this.merge.trashInFlight > 0 ||
+        this.mergeCommit.trashInFlight > 0 ||
         this.selection.marquee ||
         this.rename.renamingId ||
         this.rename.renamingFolderChild ||

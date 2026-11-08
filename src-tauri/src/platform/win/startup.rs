@@ -1,16 +1,30 @@
-// Launch-at-logon registration (per-user scheduled task, HKCU Run key fallback).
+// Launch-at-logon registration: a per-user logon task (registered through the
+// Task Scheduler COM API from XML), with the HKCU Run key as a fallback.
+//
+// The logon task starts right after sign-in; Run key entries wait for the
+// shell to finish loading. Everything here talks to Task Scheduler and the
+// registry in-process: no schtasks.exe / reg.exe, so no console code page
+// mangling the paths we compare, and no process spawns on every boot.
 use super::*;
+use windows::core::BSTR;
+use windows::Win32::Foundation::{ERROR_FILE_NOT_FOUND, E_ACCESSDENIED, WIN32_ERROR};
+use windows::Win32::System::Registry::{
+    RegDeleteKeyValueW, RegGetValueW, RegSetKeyValueW, HKEY_CURRENT_USER, REG_SZ, RRF_RT_REG_SZ,
+};
+use windows::Win32::System::TaskScheduler::{
+    ITaskFolder, ITaskService, TaskScheduler, TASK_CREATE_OR_UPDATE, TASK_LOGON_INTERACTIVE_TOKEN,
+};
+use windows::Win32::System::Variant::VARIANT;
 
-pub(super) const STARTUP_TASK_NAME: &str = "\\BuzzDesk";
+// Task name in the Task Scheduler root folder.
+const STARTUP_TASK_NAME: &str = "BuzzDesk";
 
-pub(super) const STARTUP_RUN_VALUE_NAME: &str = "BuzzDesk";
+const STARTUP_RUN_VALUE_NAME: &str = "BuzzDesk";
 
-pub(super) const STARTUP_RUN_KEY: &str = r"HKCU\Software\Microsoft\Windows\CurrentVersion\Run";
-
-pub(super) const CREATE_NO_WINDOW: u32 = 0x08000000;
+const STARTUP_RUN_SUBKEY: &str = r"Software\Microsoft\Windows\CurrentVersion\Run";
 
 pub fn get_startup_enabled() -> bool {
-    startup_task_exists() || startup_run_key_exists()
+    startup_task_exists() || read_run_value().is_some()
 }
 
 pub fn set_startup_enabled(enabled: bool) -> Result<(), String> {
@@ -28,80 +42,58 @@ pub fn set_startup_enabled(enabled: bool) -> Result<(), String> {
 pub fn enable_startup_for(exe_path: &Path) -> Result<(), String> {
     match create_startup_task(exe_path) {
         Ok(()) => {
-            let _ = delete_startup_run_key();
+            let _ = delete_run_value();
             Ok(())
         }
-        Err(task_error) => create_startup_run_key(exe_path)
+        Err(task_error) => write_run_value(exe_path)
             .map_err(|run_error| format!("{task_error}; run key fallback failed: {run_error}")),
     }
 }
 
-// Points an existing startup entry at this executable (e.g. after moving
-// from a Program Files install to the per-user one).
+// Runs at every launch: keeps an enabled startup entry pointing at this
+// executable (e.g. after moving from Program Files to the per-user install)
+// and upgrades Run key entries to the faster logon task. Returns whether
+// anything was changed.
 pub fn repair_startup_entry() -> Result<bool, String> {
+    // A development build must never take over the user's real startup entry.
+    if cfg!(debug_assertions) {
+        return Ok(false);
+    }
+
     let exe_path = env::current_exe()
         .map_err(|error| format!("failed to resolve current executable: {error}"))?;
-    let exe_text = exe_path.to_string_lossy().to_lowercase();
 
-    if startup_task_exists() {
-        let output = schtasks()
-            .args(["/Query", "/TN", STARTUP_TASK_NAME, "/XML"])
-            .output()
-            .map_err(|error| format!("failed to query startup task: {error}"))?;
-        let xml = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        if xml.contains(&exe_text) {
-            return Ok(false);
+    if let Some(xml) = startup_task_xml_text() {
+        let mut changed = false;
+        if !task_command_matches(&xml, &exe_path) {
+            enable_startup_for(&exe_path)?;
+            changed = true;
         }
-        enable_startup_for(&exe_path)?;
-        return Ok(true);
+        // A leftover Run value would start a second copy at logon.
+        if read_run_value().is_some() && delete_run_value().is_ok() {
+            changed = true;
+        }
+        return Ok(changed);
     }
 
-    if startup_run_key_exists() {
-        let output = reg()
-            .args(["QUERY", STARTUP_RUN_KEY, "/V", STARTUP_RUN_VALUE_NAME])
-            .output()
-            .map_err(|error| format!("failed to query startup registry value: {error}"))?;
-        let value = String::from_utf8_lossy(&output.stdout).to_lowercase();
-        if value.contains(&exe_text) {
-            return Ok(false);
+    let Some(run_value) = read_run_value() else {
+        // Startup is off: leave it off.
+        return Ok(false);
+    };
+
+    match create_startup_task(&exe_path) {
+        Ok(()) => {
+            delete_run_value()?;
+            Ok(true)
         }
-        create_startup_run_key(&exe_path)?;
-        return Ok(true);
+        Err(_) if same_executable(&run_value, &exe_path) => Ok(false),
+        Err(_) => write_run_value(&exe_path).map(|()| true),
     }
-
-    Ok(false)
 }
 
-pub(super) fn startup_task_exists() -> bool {
-    schtasks()
-        .args(["/Query", "/TN", STARTUP_TASK_NAME])
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-pub(super) fn create_startup_task(exe_path: &Path) -> Result<(), String> {
-    let xml_path = env::temp_dir().join("buzzdesk-startup.xml");
-    write_utf16_xml(&xml_path, &startup_task_xml(exe_path))
-        .map_err(|error| format!("failed to write startup task XML: {error}"))?;
-
-    let xml_path_text = xml_path.to_string_lossy().to_string();
-    let result = schtasks_ok(&[
-        "/Create",
-        "/TN",
-        STARTUP_TASK_NAME,
-        "/XML",
-        &xml_path_text,
-        "/F",
-    ]);
-
-    let _ = fs::remove_file(xml_path);
-    result
-}
-
-pub(super) fn delete_startup_entries() -> Result<(), String> {
+fn delete_startup_entries() -> Result<(), String> {
     let task_result = delete_startup_task();
-    let run_key_result = delete_startup_run_key();
+    let run_key_result = delete_run_value();
 
     match (task_result, run_key_result) {
         (Ok(()), Ok(())) => Ok(()),
@@ -111,18 +103,96 @@ pub(super) fn delete_startup_entries() -> Result<(), String> {
     }
 }
 
-pub(super) fn delete_startup_task() -> Result<(), String> {
-    if !startup_task_exists() {
-        return Ok(());
-    }
+// --- Task Scheduler ------------------------------------------------------------
 
-    schtasks_ok_allow_elevation(&["/Delete", "/TN", STARTUP_TASK_NAME, "/F"])
+fn task_root_folder() -> Result<ITaskFolder, String> {
+    unsafe {
+        let service: ITaskService = CoCreateInstance(&TaskScheduler, None, CLSCTX_INPROC_SERVER)
+            .map_err(|error| format!("Task Scheduler unavailable: {error}"))?;
+        let empty = VARIANT::default();
+        service
+            .Connect(&empty, &empty, &empty, &empty)
+            .map_err(|error| format!("failed to connect to Task Scheduler: {error}"))?;
+        service
+            .GetFolder(&BSTR::from("\\"))
+            .map_err(|error| format!("failed to open the Task Scheduler root folder: {error}"))
+    }
+}
+
+// Registered XML of a task, or None when it doesn't exist (or can't be read).
+fn task_xml_text(name: &str) -> Option<String> {
+    let _com = ComApartment::enter();
+    let folder = task_root_folder().ok()?;
+    unsafe {
+        let task = folder.GetTask(&BSTR::from(name)).ok()?;
+        task.Xml().ok().map(|xml| xml.to_string())
+    }
+}
+
+fn register_task_xml(name: &str, xml: &str) -> Result<(), String> {
+    let _com = ComApartment::enter();
+    let folder = task_root_folder()?;
+    let empty = VARIANT::default();
+    unsafe {
+        folder
+            .RegisterTask(
+                &BSTR::from(name),
+                &BSTR::from(xml),
+                TASK_CREATE_OR_UPDATE.0,
+                &empty,
+                &empty,
+                TASK_LOGON_INTERACTIVE_TOKEN,
+                &empty,
+            )
+            .map(|_| ())
+            .map_err(|error| format!("failed to register startup task: {error}"))
+    }
+}
+
+enum DeleteOutcome {
+    Deleted,
+    Missing,
+    AccessDenied,
+}
+
+fn delete_task(name: &str) -> Result<DeleteOutcome, String> {
+    let _com = ComApartment::enter();
+    let folder = task_root_folder()?;
+    match unsafe { folder.DeleteTask(&BSTR::from(name), 0) } {
+        Ok(()) => Ok(DeleteOutcome::Deleted),
+        Err(error) if error.code() == ERROR_FILE_NOT_FOUND.to_hresult() => Ok(DeleteOutcome::Missing),
+        Err(error) if error.code() == E_ACCESSDENIED => Ok(DeleteOutcome::AccessDenied),
+        Err(error) => Err(format!("failed to delete startup task: {error}")),
+    }
+}
+
+fn startup_task_exists() -> bool {
+    startup_task_xml_text().is_some()
+}
+
+fn startup_task_xml_text() -> Option<String> {
+    task_xml_text(STARTUP_TASK_NAME)
+}
+
+fn create_startup_task(exe_path: &Path) -> Result<(), String> {
+    register_task_xml(STARTUP_TASK_NAME, &startup_task_xml(exe_path))
+}
+
+fn delete_startup_task() -> Result<(), String> {
+    match delete_task(STARTUP_TASK_NAME)? {
+        DeleteOutcome::Deleted | DeleteOutcome::Missing => Ok(()),
+        // A task left behind by an elevated (per-machine) install.
+        DeleteOutcome::AccessDenied => {
+            let name = format!("\\{STARTUP_TASK_NAME}");
+            schtasks_elevated(&["/Delete", "/TN", &name, "/F"])
+        }
+    }
 }
 
 // Binding the trigger and principal to the current user is what lets a
 // non-elevated process register a logon task (an "any user" logon trigger
 // requires administrator rights).
-pub(super) fn current_user_id() -> Option<String> {
+fn current_user_id() -> Option<String> {
     let user = env::var("USERNAME").ok().filter(|value| !value.trim().is_empty())?;
     Some(match env::var("USERDOMAIN").ok().filter(|value| !value.trim().is_empty()) {
         Some(domain) => format!("{domain}\\{user}"),
@@ -131,6 +201,13 @@ pub(super) fn current_user_id() -> Option<String> {
 }
 
 pub(super) fn startup_task_xml(exe_path: &Path) -> String {
+    logon_task_xml(exe_path, true)
+}
+
+// Priority 4 is the normal process priority. Anything above normal (0-3)
+// needs administrator rights, and registering such a task without them fails
+// with "access denied".
+fn logon_task_xml(exe_path: &Path, enabled: bool) -> String {
     let command = xml_escape(&format!("\"{}\"", exe_path.to_string_lossy()));
     let user_id = current_user_id()
         .map(|user| format!("\n      <UserId>{}</UserId>", xml_escape(&user)))
@@ -139,140 +216,132 @@ pub(super) fn startup_task_xml(exe_path: &Path) -> String {
         r#"<?xml version="1.0" encoding="UTF-16"?>
 <Task version="1.2" xmlns="http://schemas.microsoft.com/windows/2004/02/mit/task">
   <Triggers>
-<LogonTrigger>
-  <Enabled>true</Enabled>{user_id}
-</LogonTrigger>
+    <LogonTrigger>
+      <Enabled>true</Enabled>{user_id}
+    </LogonTrigger>
   </Triggers>
   <Principals>
-<Principal id="Author">{user_id}
-  <LogonType>InteractiveToken</LogonType>
-  <RunLevel>LeastPrivilege</RunLevel>
-</Principal>
+    <Principal id="Author">{user_id}
+      <LogonType>InteractiveToken</LogonType>
+      <RunLevel>LeastPrivilege</RunLevel>
+    </Principal>
   </Principals>
   <Settings>
-<MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
-<DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
-<StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
-<AllowHardTerminate>true</AllowHardTerminate>
-<StartWhenAvailable>false</StartWhenAvailable>
-<RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
-<IdleSettings>
-  <StopOnIdleEnd>false</StopOnIdleEnd>
-  <RestartOnIdle>false</RestartOnIdle>
-</IdleSettings>
-<AllowStartOnDemand>true</AllowStartOnDemand>
-<Enabled>true</Enabled>
-<Hidden>false</Hidden>
-<RunOnlyIfIdle>false</RunOnlyIfIdle>
-<WakeToRun>false</WakeToRun>
-<ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
-<Priority>0</Priority>
+    <MultipleInstancesPolicy>IgnoreNew</MultipleInstancesPolicy>
+    <DisallowStartIfOnBatteries>false</DisallowStartIfOnBatteries>
+    <StopIfGoingOnBatteries>false</StopIfGoingOnBatteries>
+    <AllowHardTerminate>true</AllowHardTerminate>
+    <StartWhenAvailable>false</StartWhenAvailable>
+    <RunOnlyIfNetworkAvailable>false</RunOnlyIfNetworkAvailable>
+    <IdleSettings>
+      <StopOnIdleEnd>false</StopOnIdleEnd>
+      <RestartOnIdle>false</RestartOnIdle>
+    </IdleSettings>
+    <AllowStartOnDemand>true</AllowStartOnDemand>
+    <Enabled>{enabled}</Enabled>
+    <Hidden>false</Hidden>
+    <RunOnlyIfIdle>false</RunOnlyIfIdle>
+    <WakeToRun>false</WakeToRun>
+    <ExecutionTimeLimit>PT0S</ExecutionTimeLimit>
+    <Priority>4</Priority>
   </Settings>
   <Actions Context="Author">
-<Exec>
-  <Command>{command}</Command>
-</Exec>
+    <Exec>
+      <Command>{command}</Command>
+    </Exec>
   </Actions>
 </Task>
 "#
     )
 }
 
-pub(super) fn write_utf16_xml(path: &Path, xml: &str) -> std::io::Result<()> {
-    let mut bytes = Vec::with_capacity(xml.len() * 2 + 2);
-    bytes.extend_from_slice(&[0xff, 0xfe]);
-    for code in xml.encode_utf16() {
-        bytes.extend_from_slice(&code.to_le_bytes());
+// Whether a registered task's (first) <Command> launches `exe_path`.
+fn task_command_matches(xml: &str, exe_path: &Path) -> bool {
+    let Some(start) = xml.find("<Command>") else {
+        return false;
+    };
+    let rest = &xml[start + "<Command>".len()..];
+    let Some(end) = rest.find("</Command>") else {
+        return false;
+    };
+    same_executable(&xml_unescape(&rest[..end]), exe_path)
+}
+
+fn xml_unescape(value: &str) -> String {
+    value
+        .replace("&quot;", "\"")
+        .replace("&apos;", "'")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&")
+}
+
+// Paths compare case-insensitively on Windows; launch commands may be quoted.
+fn same_executable(command: &str, exe_path: &Path) -> bool {
+    let command = command.trim().trim_matches('"').trim();
+    command.to_lowercase() == exe_path.to_string_lossy().to_lowercase()
+}
+
+// --- HKCU Run key ----------------------------------------------------------------
+
+fn read_run_value() -> Option<String> {
+    let subkey = to_wide(STARTUP_RUN_SUBKEY);
+    let name = to_wide(STARTUP_RUN_VALUE_NAME);
+    let mut buffer = vec![0u16; 2048];
+    let mut size = (buffer.len() * 2) as u32;
+    unsafe {
+        RegGetValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            PCWSTR(name.as_ptr()),
+            RRF_RT_REG_SZ,
+            None,
+            Some(buffer.as_mut_ptr().cast()),
+            Some(&mut size),
+        )
+        .ok()
+        .ok()?;
     }
-
-    fs::write(path, bytes)
+    let len = (size as usize / 2).saturating_sub(1).min(buffer.len());
+    let value = String::from_utf16_lossy(&buffer[..len]);
+    (!value.trim().is_empty()).then_some(value)
 }
 
-pub(super) fn startup_run_key_exists() -> bool {
-    reg()
-        .args(["QUERY", STARTUP_RUN_KEY, "/V", STARTUP_RUN_VALUE_NAME])
-        .status()
-        .map(|status| status.success())
-        .unwrap_or(false)
-}
-
-pub(super) fn create_startup_run_key(exe_path: &Path) -> Result<(), String> {
-    let value = format!("\"{}\"", exe_path.to_string_lossy());
-    let status = reg()
-        .args([
-            "ADD",
-            STARTUP_RUN_KEY,
-            "/V",
-            STARTUP_RUN_VALUE_NAME,
-            "/T",
-            "REG_SZ",
-            "/D",
-            &value,
-            "/F",
-        ])
-        .status()
-        .map_err(|error| format!("failed to write startup registry value: {error}"))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err("failed to write startup registry value".to_string())
+fn write_run_value(exe_path: &Path) -> Result<(), String> {
+    let subkey = to_wide(STARTUP_RUN_SUBKEY);
+    let name = to_wide(STARTUP_RUN_VALUE_NAME);
+    let data = to_wide(&format!("\"{}\"", exe_path.to_string_lossy()));
+    unsafe {
+        RegSetKeyValueW(
+            HKEY_CURRENT_USER,
+            PCWSTR(subkey.as_ptr()),
+            PCWSTR(name.as_ptr()),
+            REG_SZ.0,
+            Some(data.as_ptr().cast()),
+            (data.len() * 2) as u32,
+        )
+        .ok()
+        .map_err(|error| format!("failed to write startup registry value: {error}"))
     }
 }
 
-pub(super) fn delete_startup_run_key() -> Result<(), String> {
-    if !startup_run_key_exists() {
+fn delete_run_value() -> Result<(), String> {
+    let subkey = to_wide(STARTUP_RUN_SUBKEY);
+    let name = to_wide(STARTUP_RUN_VALUE_NAME);
+    let result: WIN32_ERROR = unsafe { RegDeleteKeyValueW(HKEY_CURRENT_USER, PCWSTR(subkey.as_ptr()), PCWSTR(name.as_ptr())) };
+    if result == ERROR_FILE_NOT_FOUND {
         return Ok(());
     }
-
-    let status = reg()
-        .args([
-            "DELETE",
-            STARTUP_RUN_KEY,
-            "/V",
-            STARTUP_RUN_VALUE_NAME,
-            "/F",
-        ])
-        .status()
-        .map_err(|error| format!("failed to delete startup registry value: {error}"))?;
-
-    if status.success() {
-        Ok(())
-    } else {
-        Err("failed to delete startup registry value".to_string())
-    }
+    result
+        .ok()
+        .map_err(|error| format!("failed to delete startup registry value: {error}"))
 }
 
-pub(super) fn schtasks_ok_allow_elevation(args: &[&str]) -> Result<(), String> {
-    match schtasks_ok(args) {
-        Ok(()) => Ok(()),
-        Err(error) => schtasks_ok_elevated(args).map_err(|elevated_error| {
-            format!("{error}; elevated retry failed: {elevated_error}")
-        }),
-    }
-}
+// --- Elevated fallback -----------------------------------------------------------
 
-pub(super) fn schtasks_ok(args: &[&str]) -> Result<(), String> {
-    let output = schtasks()
-        .args(args)
-        .output()
-        .map_err(|error| format!("failed to run schtasks: {error}"))?;
-
-    if output.status.success() {
-        return Ok(());
-    }
-
-    let stderr = String::from_utf8_lossy(&output.stderr);
-    let stdout = String::from_utf8_lossy(&output.stdout);
-    let message = format!("{stderr}{stdout}").trim().to_string();
-    Err(if message.is_empty() {
-        "schtasks failed".to_string()
-    } else {
-        message
-    })
-}
-
-pub(super) fn schtasks_ok_elevated(args: &[&str]) -> Result<(), String> {
+// Only for a task an elevated (per-machine) install left behind, which this
+// user may not delete. Runs System32's schtasks.exe through a UAC prompt.
+fn schtasks_elevated(args: &[&str]) -> Result<(), String> {
     let parameters = args
         .iter()
         .map(|arg| windows_command_arg(arg))
@@ -316,7 +385,7 @@ pub(super) fn schtasks_ok_elevated(args: &[&str]) -> Result<(), String> {
     }
 }
 
-pub(super) fn windows_command_arg(value: &str) -> String {
+fn windows_command_arg(value: &str) -> String {
     if !value.is_empty()
         && !value
             .chars()
@@ -349,24 +418,48 @@ pub(super) fn windows_command_arg(value: &str) -> String {
     escaped
 }
 
-pub(super) fn schtasks() -> Command {
-    let mut command = Command::new(system_tool("schtasks.exe"));
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
-
-pub(super) fn reg() -> Command {
-    let mut command = Command::new(system_tool("reg.exe"));
-    command.creation_flags(CREATE_NO_WINDOW);
-    command
-}
-
 #[cfg(test)]
 mod tests {
+    use super::*;
+
     #[test]
     fn builds_user_scoped_startup_task() {
-        let xml = super::startup_task_xml(std::path::Path::new(r"C:\Users\me\AppData\Local\BuzzDesk\buzzdesk.exe"));
+        let exe = Path::new(r"C:\Users\me\AppData\Local\BuzzDesk\buzzdesk.exe");
+        let xml = startup_task_xml(exe);
         assert!(xml.contains("<UserId>"));
-        assert!(xml.contains("buzzdesk.exe"));
+        assert!(xml.contains("<Priority>4</Priority>"));
+        assert!(!xml.contains("<Delay>"));
+        assert!(task_command_matches(&xml, exe));
+    }
+
+    #[test]
+    fn compares_task_commands_like_windows_paths() {
+        let exe = Path::new(r"C:\Users\Zhang & Co\AppData\Local\BuzzDesk\buzzdesk.exe");
+        let xml = startup_task_xml(exe);
+        assert!(xml.contains("&amp;"));
+        assert!(task_command_matches(&xml, exe));
+        assert!(task_command_matches(&xml, Path::new(r"c:\USERS\zhang & co\AppData\Local\BuzzDesk\BUZZDESK.EXE")));
+        assert!(!task_command_matches(&xml, Path::new(r"D:\Programs\BuzzDesk\buzzdesk.exe")));
+        assert!(same_executable("\"D:\\Programs\\BuzzDesk\\BuzzDesk.exe\"", Path::new(r"d:\programs\buzzdesk\buzzdesk.exe")));
+    }
+
+    // Registers a disabled throwaway logon task through COM without elevation,
+    // reads it back and removes it. Never touches the real "BuzzDesk" task.
+    // Run with `cargo test registers_logon_task_without_elevation -- --ignored`.
+    #[test]
+    #[ignore]
+    fn registers_logon_task_without_elevation() {
+        const NAME: &str = "BuzzDeskTestTask";
+        let notepad = system_tool("notepad.exe");
+        let _ = delete_task(NAME);
+
+        register_task_xml(NAME, &logon_task_xml(&notepad, false)).expect("register task without elevation");
+        let xml = task_xml_text(NAME).expect("read registered task back");
+        let deleted = delete_task(NAME);
+
+        assert!(task_command_matches(&xml, &notepad), "registered XML: {xml}");
+        assert!(xml.contains("<Priority>4</Priority>"));
+        assert!(matches!(deleted, Ok(DeleteOutcome::Deleted)));
+        assert!(task_xml_text(NAME).is_none());
     }
 }
