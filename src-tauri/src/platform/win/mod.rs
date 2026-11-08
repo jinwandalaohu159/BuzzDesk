@@ -76,6 +76,7 @@ use windows::Win32::UI::WindowsAndMessaging::{
 };
 
 mod backdrop;
+mod clipboard;
 mod context_menu;
 mod desktop_layer;
 mod diagnostics;
@@ -83,6 +84,7 @@ mod icons;
 mod instance;
 mod items;
 mod legacy_install;
+mod menu_forwarder;
 mod notification;
 mod process;
 mod shell_ops;
@@ -90,16 +92,19 @@ mod startup;
 mod util;
 
 #[allow(unused_imports)]
-use self::{context_menu::*, desktop_layer::*, diagnostics::*, icons::*, items::*, shell_ops::*, startup::*, util::*};
+use self::{
+    clipboard::*, context_menu::*, desktop_layer::*, diagnostics::*, icons::*, items::*, menu_forwarder::*,
+    shell_ops::*, startup::*, util::*,
+};
 
 pub use self::context_menu::{invoke_native_desktop_context_menu_command, list_native_desktop_context_menu, show_native_item_context_menu};
 pub use self::desktop_layer::{attach_window_to_desktop, set_native_desktop_icons_visible};
 pub use self::diagnostics::{desktop_diagnostics};
 pub use self::items::{scan_desktop_items, scan_desktop_items_fast};
-pub use self::shell_ops::{copy_desktop_item, create_desktop_folder, delete_desktop_item, open_desktop_item, open_update_release_page, paste_desktop_items, rename_desktop_item, set_app_process_priority, show_desktop_item_properties};
+pub use self::shell_ops::{copy_desktop_item, create_desktop_folder, delete_desktop_item, open_desktop_item, open_update_release_page, paste_desktop_items, rename_desktop_item, show_desktop_item_properties};
 pub use self::startup::{enable_startup_for, get_startup_enabled, repair_startup_entry, set_startup_enabled};
 pub use self::backdrop::{backdrop_info, capture_desktop, desktop_uncovered};
 pub use self::instance::claim_single_instance;
 pub use self::legacy_install::{legacy_install, run_legacy_uninstall};
 pub use self::notification::show_toast;
-pub use self::process::{run_installer_and_wait, wait_for_process_exit};
+pub use self::process::{run_installer_and_wait, set_app_process_priority, wait_for_process_exit};

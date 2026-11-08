@@ -6,7 +6,7 @@ import type {
   PersistedItemNode,
   PersistedNode
 } from "../types";
-import { saveDesktopState } from "../system/desktopApi";
+import { saveDesktopState } from "../system/desktopStateApi";
 
 const storageKey = "desktop-layer-state-v1";
 

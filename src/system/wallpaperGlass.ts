@@ -5,7 +5,7 @@ import {
   loadDesktopBackdrop,
   type DesktopBackdropInfo,
   type DesktopBackdropSnapshot
-} from "./desktopApi";
+} from "./backdropApi";
 import { wait, waitForPaint } from "../shared/timing";
 
 // Real frosted glass for a transparent desktop layer.

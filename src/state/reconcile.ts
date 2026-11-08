@@ -1,4 +1,16 @@
-import type { AppNode, PersistedItemNode } from "../types";
+import type {
+  AppNode,
+  DesktopNode,
+  DesktopPosition,
+  PersistedDesktopState,
+  PersistedItemNode,
+  PersistedNode
+} from "../types";
+import { defaultFolderAppearance, normalizeFolderAppearance } from "../settings/desktopSettings";
+
+// Matching saved desktop state against what is actually on the desktop now:
+// which saved copy wins, which scanned item each saved node is, and cheap
+// equality checks that keep the store from emitting no-op changes.
 
 export function createScannedPathIndex(scannedItems: AppNode[]) {
   const index = new Map<string, AppNode[]>();
@@ -70,4 +82,98 @@ function normalizePathKey(value: string) {
   }
 
   return path.replace(/\//g, "\\").replace(/\\+$/g, "").toLocaleLowerCase();
+}
+
+export function choosePersistedState(nativeState: PersistedDesktopState | null, localState: PersistedDesktopState | null) {
+  if (!nativeState) {
+    return localState;
+  }
+
+  if (!localState) {
+    return nativeState;
+  }
+
+  return updatedAtOf(localState) > updatedAtOf(nativeState) ? localState : nativeState;
+}
+
+function updatedAtOf(state: PersistedDesktopState) {
+  return Number.isFinite(state.updatedAt) ? Number(state.updatedAt) : 0;
+}
+
+export function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNode>, scannedItems: AppNode[]) {
+  const scanned = new Map(scannedItems.map((item) => [item.id, item]));
+  const scannedByPath = createScannedPathIndex(scannedItems);
+  const used = new Set<string>();
+  const nodes: DesktopNode[] = [];
+
+  for (const node of sourceNodes) {
+    if (node.type === "item") {
+      const current = resolveScannedItem(node, scanned, scannedByPath, used);
+      if (current) {
+        nodes.push({ ...current, position: normalizePosition(node.position) });
+        used.add(current.id);
+      }
+      continue;
+    }
+
+    const children = node.children
+      .map((child) => resolveScannedItem(child, scanned, scannedByPath, used))
+      .filter((child): child is AppNode => Boolean(child));
+
+    children.forEach((child) => used.add(child.id));
+
+    if (children.length > 1) {
+      nodes.push({
+        type: "folder",
+        id: node.id,
+        name: node.name,
+        createdAt: node.createdAt,
+        position: normalizePosition(node.position),
+        appearance: normalizeFolderAppearance(node.appearance, defaultFolderAppearance),
+        children
+      });
+    } else {
+      nodes.push(...children);
+    }
+  }
+
+  for (const item of scannedItems) {
+    if (!used.has(item.id)) {
+      nodes.push(item);
+    }
+  }
+
+  return nodes;
+}
+
+export function normalizePosition(position: unknown): DesktopPosition | null {
+  if (!position || typeof position !== "object") {
+    return null;
+  }
+
+  const value = position as Partial<DesktopPosition>;
+  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) {
+    return null;
+  }
+
+  return {
+    x: Math.round(Number(value.x)),
+    y: Math.round(Number(value.y))
+  };
+}
+
+export function sameNodeOrder(a: DesktopNode[], b: DesktopNode[]) {
+  return a.length === b.length && a.every((node, index) => node.id === b[index]?.id);
+}
+
+export function sameItem(a: AppNode, b: AppNode) {
+  return (
+    a.id === b.id &&
+    a.name === b.name &&
+    a.kind === b.kind &&
+    (a.path ?? null) === (b.path ?? null) &&
+    a.launchId === b.launchId &&
+    (a.iconDataUrl ?? null) === (b.iconDataUrl ?? null) &&
+    a.isVirtual === b.isVirtual
+  );
 }

@@ -1,4 +1,4 @@
-import { resetContextMenuSettings } from "../contextMenuModel";
+import { resetContextMenuSettings } from "./contextMenuLayoutEdit";
 import { computeDesktopLayout } from "../../layout/grid";
 import { applyFolderTileShellStyle, renderFolderCover } from "../../render/desktopTile";
 import { applyDesktopSettings, defaultDesktopSettings, desktopTileMetrics, fitDesktopSettings } from "../../settings/desktopSettings";

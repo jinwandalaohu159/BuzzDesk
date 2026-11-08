@@ -5,8 +5,7 @@ import type {
   DesktopPosition,
   FolderAppearanceSettings,
   FolderNode,
-  PersistedDesktopState,
-  PersistedNode
+  PersistedDesktopState
 } from "../types";
 import {
   createDefaultFolderAppearance,
@@ -18,7 +17,15 @@ import {
   normalizeDesktopSettings
 } from "../settings/desktopSettings";
 import { loadState, saveState } from "./persistence";
-import { createScannedPathIndex, resolveScannedItem } from "./reconcile";
+import {
+  choosePersistedState,
+  createScannedPathIndex,
+  normalizePosition,
+  reconcileNodesWithScanned,
+  resolveScannedItem,
+  sameItem,
+  sameNodeOrder
+} from "./reconcile";
 import { clampIndex } from "../shared/math";
 
 const defaultFolderName = "\u6587\u4ef6\u5939";
@@ -502,22 +509,6 @@ export class DesktopStore {
   }
 }
 
-function choosePersistedState(nativeState: PersistedDesktopState | null, localState: PersistedDesktopState | null) {
-  if (!nativeState) {
-    return localState;
-  }
-
-  if (!localState) {
-    return nativeState;
-  }
-
-  return updatedAtOf(localState) > updatedAtOf(nativeState) ? localState : nativeState;
-}
-
-function updatedAtOf(state: PersistedDesktopState) {
-  return Number.isFinite(state.updatedAt) ? Number(state.updatedAt) : 0;
-}
-
 function systemIconsChanged(a: DesktopSettings["systemIcons"], b: DesktopSettings["systemIcons"]) {
   return desktopSystemIconIds.some((id) => a[id] !== b[id]);
 }
@@ -531,82 +522,4 @@ function systemIconsFirst(items: AppNode[]) {
   }
 
   return [...systemIcons, ...others];
-}
-
-function reconcileNodesWithScanned(sourceNodes: Array<DesktopNode | PersistedNode>, scannedItems: AppNode[]) {
-  const scanned = new Map(scannedItems.map((item) => [item.id, item]));
-  const scannedByPath = createScannedPathIndex(scannedItems);
-  const used = new Set<string>();
-  const nodes: DesktopNode[] = [];
-
-  for (const node of sourceNodes) {
-    if (node.type === "item") {
-      const current = resolveScannedItem(node, scanned, scannedByPath, used);
-      if (current) {
-        nodes.push({ ...current, position: normalizePosition(node.position) });
-        used.add(current.id);
-      }
-      continue;
-    }
-
-    const children = node.children
-      .map((child) => resolveScannedItem(child, scanned, scannedByPath, used))
-      .filter((child): child is AppNode => Boolean(child));
-
-    children.forEach((child) => used.add(child.id));
-
-    if (children.length > 1) {
-      nodes.push({
-        type: "folder",
-        id: node.id,
-        name: node.name,
-        createdAt: node.createdAt,
-        position: normalizePosition(node.position),
-        appearance: normalizeFolderAppearance(node.appearance, defaultFolderAppearance),
-        children
-      });
-    } else {
-      nodes.push(...children);
-    }
-  }
-
-  for (const item of scannedItems) {
-    if (!used.has(item.id)) {
-      nodes.push(item);
-    }
-  }
-
-  return nodes;
-}
-
-function normalizePosition(position: unknown): DesktopPosition | null {
-  if (!position || typeof position !== "object") {
-    return null;
-  }
-
-  const value = position as Partial<DesktopPosition>;
-  if (!Number.isFinite(value.x) || !Number.isFinite(value.y)) {
-    return null;
-  }
-
-  return {
-    x: Math.round(Number(value.x)),
-    y: Math.round(Number(value.y))
-  };
-}
-
-function sameNodeOrder(a: DesktopNode[], b: DesktopNode[]) {
-  return a.length === b.length && a.every((node, index) => node.id === b[index]?.id);
-}
-
-function sameItem(a: AppNode, b: AppNode) {
-  return (
-    a.id === b.id &&
-    a.name === b.name &&
-    a.kind === b.kind &&
-    (a.path ?? null) === (b.path ?? null) &&
-    a.launchId === b.launchId &&
-    (a.iconDataUrl ?? null) === (b.iconDataUrl ?? null) &&
-    a.isVirtual === b.isVirtual
-  );
 }

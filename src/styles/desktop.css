@@ -46,7 +46,7 @@
   border: 1px solid rgba(104, 178, 255, 0.92);
   background: rgba(68, 151, 255, 0.22);
   box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.16), 0 8px 28px rgba(0, 62, 140, 0.16);
-  backdrop-filter: blur(1px);
+  contain: strict;
 }
 
 .desktop-tile {
@@ -145,6 +145,11 @@
 .folder-item:active .icon-shell {
   transform: scale(.94);
   transition-duration: 70ms;
+}
+
+/* A marquee that began on a tile's empty padding is not a press on that icon. */
+.desktop-shell.is-marquee-active .desktop-tile:active .icon-shell {
+  transform: none;
 }
 
 .desktop-tile.is-opening::before {

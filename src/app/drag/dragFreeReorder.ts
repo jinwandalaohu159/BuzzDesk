@@ -1,5 +1,5 @@
 import { desktopViewport } from "../../system/desktopViewport";
-import { type FreeReorderPlan, type FreeReorderRect } from "../freePlacement";
+import { type FreeReorderPlan, type FreeReorderRect } from "../support/freePlacement";
 import { clientToLayout, expandedRect, pointInMergeRect, type Rect } from "../support/geometry";
 import type { DesktopApp } from "../DesktopApp";
 import { freeDragDelta } from "./dragDrop";

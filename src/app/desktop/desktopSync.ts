@@ -1,11 +1,12 @@
 // Keeps the virtual desktop in step with the real one: a cheap poll that only
 // does a full (icon) scan when the item list actually changed, follow-up
 // refreshes after shell commands, and deferral while the user is mid-gesture.
-import { scanDesktopItems, isDesktopRuntime } from "../system/desktopApi";
-import { warmIconImages } from "../system/iconWarmup";
-import { desktopItemIdentityKeys, desktopItemMatchesIdentityKeys, desktopItemsSignature } from "./support/desktopItemIdentity";
-import { scheduleIdleTask, wait } from "../shared/timing";
-import type { AppNode } from "../types";
+import { scanDesktopItems } from "../../system/desktopApi";
+import { isDesktopRuntime } from "../../system/nativeBridge";
+import { warmIconImages } from "../../system/iconWarmup";
+import { desktopItemIdentityKeys, desktopItemMatchesIdentityKeys, desktopItemsSignature } from "../support/desktopItemIdentity";
+import { scheduleIdleTask, wait } from "../../shared/timing";
+import type { AppNode } from "../../types";
 
 export interface DesktopSyncHost {
   syncScannedItems(items: AppNode[]): void;

@@ -1,4 +1,4 @@
-import { isDesktopRuntime } from "./desktopApi";
+import { isDesktopRuntime } from "./nativeBridge";
 
 // The layer window overhangs every screen edge by this many *physical* pixels
 // (DESKTOP_LAYER_EDGE_BLEED_PX on the native side) so no seam shows.

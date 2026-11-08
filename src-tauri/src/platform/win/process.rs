@@ -1,5 +1,5 @@
-// Child processes for the update helper: waiting for BuzzDesk to exit and
-// running an installer (or an elevated command) to completion.
+// Processes: BuzzDesk's own priority, and for the update helper waiting for
+// BuzzDesk to exit and running an installer (or an elevated command) to completion.
 use super::*;
 use std::time::{Duration, Instant};
 use windows::Win32::Foundation::{WAIT_OBJECT_0, WAIT_TIMEOUT};
@@ -91,5 +91,20 @@ pub(super) fn shell_execute_and_wait(
         let _ = CloseHandle(info.hProcess);
         read.map_err(|error| format!("failed to read process exit code: {error}"))?;
         Ok(exit_code)
+    }
+}
+
+pub fn set_app_process_priority(priority: &str) -> Result<(), String> {
+    let priority_class = match priority {
+        "normal" => NORMAL_PRIORITY_CLASS,
+        "aboveNormal" => ABOVE_NORMAL_PRIORITY_CLASS,
+        "high" => HIGH_PRIORITY_CLASS,
+        "realtime" => REALTIME_PRIORITY_CLASS,
+        _ => return Err(format!("unsupported process priority: {priority}")),
+    };
+
+    unsafe {
+        SetPriorityClass(GetCurrentProcess(), priority_class)
+            .map_err(|error| format!("failed to set process priority: {error}"))
     }
 }

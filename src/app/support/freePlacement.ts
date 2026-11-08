@@ -1,22 +1,22 @@
 import {
   nearbyFreeDesktopLayoutPositions,
   snapFreeDesktopLayoutPosition
-} from "../layout/grid";
-import { desktopTileMetrics, normalizeFolderAppearance } from "../settings/desktopSettings";
+} from "../../layout/grid";
+import { desktopTileMetrics, normalizeFolderAppearance } from "../../settings/desktopSettings";
 import {
   clampScroll,
   rectsOverlapWithMargin,
   edgeAxisPositions,
   uniqueDesktopPositions,
   desktopPositionDistance
-} from "./support/geometry";
+} from "./geometry";
 import type {
   DesktopNode,
   DesktopPosition,
   DesktopSettings,
   FolderNode,
   LayoutSlot
-} from "../types";
+} from "../../types";
 
 // Placement maths for the free layout: snapping, finding open spots, keeping
 // compact folders against edges, and resolving which tiles must step aside

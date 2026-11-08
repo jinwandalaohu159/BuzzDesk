@@ -1,19 +1,19 @@
 // Owns everything about updating BuzzDesk: manual checks from settings,
 // automatic checks (install on start, announce once while running), download
 // progress and the one-time cleanup of legacy per-machine installs.
-import { UpdateToast } from "../render/updateToast";
+import { UpdateToast } from "../../render/updateToast";
+import { showSystemNotification } from "../../system/desktopApi";
+import { isDesktopRuntime } from "../../system/nativeBridge";
 import {
   cleanupLegacyInstall,
   detectLegacyInstall,
   downloadUpdateInstaller,
-  isDesktopRuntime,
   launchUpdateHelper,
-  openUpdateReleasePage,
-  showSystemNotification
-} from "../system/desktopApi";
-import { checkForUpdateRelease, currentAppVersion } from "../system/updateRelease";
-import { wait } from "../shared/timing";
-import type { DesktopSettings, UpdateCheckState } from "../types";
+  openUpdateReleasePage
+} from "../../system/updateApi";
+import { checkForUpdateRelease, currentAppVersion } from "../../system/updateRelease";
+import { wait } from "../../shared/timing";
+import type { DesktopSettings, UpdateCheckState } from "../../types";
 
 export interface UpdateControllerHost {
   getSettingsLayer(): HTMLElement;

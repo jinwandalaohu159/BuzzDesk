@@ -1,5 +1,8 @@
 import type { DesktopNode } from "../../types";
 import type { DesktopApp } from "../DesktopApp";
+import { pointHitsTileContent } from "./tileHitArea";
+
+const preventDefaultOnce = (event: Event) => event.preventDefault();
 
 export type DesktopInputHost = Pick<
   DesktopApp,
@@ -15,6 +18,7 @@ export type DesktopInputHost = Pick<
   | "menus"
   | "rename"
   | "render"
+  | "root"
   | "selection"
   | "settings"
   | "store"
@@ -45,7 +49,7 @@ export class DesktopInput {
 
     this.app.menus.closeContextMenu();
 
-    const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
+    const tile = this.tileUnderPointer(event);
     if (!tile) {
       this.app.selection.clearDesktopSelection();
       this.app.render();
@@ -64,7 +68,7 @@ export class DesktopInput {
       return;
     }
 
-    const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
+    const tile = this.tileUnderPointer(event);
     const node = this.app.findNode(tile?.dataset.nodeId ?? "");
     if (!tile || !node) {
       return;
@@ -87,12 +91,20 @@ export class DesktopInput {
       return;
     }
 
-    const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
+    const tile = this.tileUnderPointer(event);
     const id = tile?.dataset.nodeId;
     const node = this.app.findNode(id ?? "");
     const slot = id ? this.app.layout.get(id) : null;
     if (!tile || !id || !node || !slot) {
-      this.app.selection.beginDesktopMarquee(event);
+      // Pressed on a tile's empty padding: keep focus where it was instead of
+      // moving it to the tile the user missed.
+      if ((event.target as HTMLElement).closest("[data-node-id]")) {
+        const root = this.app.root;
+        root.addEventListener("mousedown", preventDefaultOnce, { capture: true, once: true });
+        // The mouse event follows in the same task; never let it linger.
+        window.setTimeout(() => root.removeEventListener("mousedown", preventDefaultOnce, { capture: true }));
+      }
+      this.app.selection.marquee.begin(event);
       return;
     }
 
@@ -113,6 +125,13 @@ export class DesktopInput {
       floating: false,
       groupNodeIds
     });
+  }
+
+  // The tile under the pointer, but only when the pointer is on what the user
+  // sees of it (icon or name), not on the empty padding around them.
+  private tileUnderPointer(event: MouseEvent) {
+    const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
+    return tile && pointHitsTileContent(tile, event.clientX, event.clientY) ? tile : null;
   }
 
   private desktopDragGroupForNode(nodeId: string) {
@@ -166,7 +185,7 @@ export class DesktopInput {
     this.app.menus.clearContextOverlay();
     this.app.settings.renderSettingsLayer();
 
-    const tile = (event.target as HTMLElement).closest<HTMLElement>("[data-node-id]");
+    const tile = this.tileUnderPointer(event);
     if (tile?.dataset.nodeId) {
       const node = this.app.findNode(tile.dataset.nodeId);
       if (node?.type === "item") {

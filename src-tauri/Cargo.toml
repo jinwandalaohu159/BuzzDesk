@@ -1,6 +1,6 @@
 [package]
 name = "buzzdesk"
-version = "0.1.6"
+version = "0.1.7"
 description = "A glass desktop with virtual folders"
 authors = ["BuzzDesk"]
 license = ""

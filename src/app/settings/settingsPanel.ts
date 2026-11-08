@@ -1,13 +1,14 @@
+import { desktopContextMenuPool } from "../overlay/contextMenuLayout";
 import {
-  desktopContextMenuPool,
   desktopContextMenuSettingsItems,
   reorderContextMenuItem,
   toggleContextMenuSeparator,
   updateContextMenuItemPlacement
-} from "../contextMenuModel";
+} from "./contextMenuLayoutEdit";
 import { renderSettingsPriorityPopover, renderSettingsLayer } from "../../render/settingsView";
 import { defaultDesktopSettings, desktopSystemIconIdFromNodeId, isDesktopSystemIconId } from "../../settings/desktopSettings";
-import { setAppProcessPriority, setStartupEnabled } from "../../system/desktopApi";
+import { setAppProcessPriority } from "../../system/desktopApi";
+import { setStartupEnabled } from "../../system/startupApi";
 import { ContextMenuEditorDrag } from "./contextMenuEditorDrag";
 import { withoutRender } from "./withoutRender";
 import {

@@ -4,24 +4,22 @@ import { applyDesktopSettings } from "../settings/desktopSettings";
 import { DesktopStore } from "../state/store";
 import {
   getDesktopDiagnostics,
-  isDesktopRuntime,
   attachDesktopLayerWindow,
   prepareDesktopLayer,
   showDesktopLayerWindow,
   restoreNativeDesktopIcons,
   listenForSettingsRequests,
   scanDesktopItems,
-  setAppProcessPriority,
-  getStartupEnabled,
-  loadDesktopState,
-  logStartupEvent,
-  repairStartupEntry
+  setAppProcessPriority
 } from "../system/desktopApi";
+import { loadDesktopState } from "../system/desktopStateApi";
+import { isDesktopRuntime } from "../system/nativeBridge";
+import { getStartupEnabled, logStartupEvent, repairStartupEntry } from "../system/startupApi";
 import { desktopViewport } from "../system/desktopViewport";
-import { UpdateController } from "./updateController";
+import { UpdateController } from "./update/updateController";
 import { computeDesktopLayoutWithContent } from "../layout/grid";
-import { DesktopSync } from "./desktopSync";
-import { FreePlacement } from "./freePlacement";
+import { DesktopSync } from "./desktop/desktopSync";
+import { FreePlacement } from "./support/freePlacement";
 import { waitForPaint, wait } from "../shared/timing";
 import { installSpringCssVariables } from "../animation/spring";
 import { anchorGlassSurfaces, onWallpaperGlassChange, startWallpaperGlass } from "../system/wallpaperGlass";
@@ -524,7 +522,7 @@ export class DesktopApp {
     return Boolean(
       this.dragging.drag ||
         this.mergeCommit.trashInFlight > 0 ||
-        this.selection.marquee ||
+        this.selection.marquee.active ||
         this.rename.renamingId ||
         this.rename.renamingFolderChild ||
         this.folder.editingFolder ||
