@@ -186,6 +186,7 @@ pub fn list_native_desktop_context_menu(app: AppHandle) -> Result<Vec<NativeCont
 pub fn invoke_native_desktop_context_menu_command(
     app: AppHandle,
     command_id: u32,
+    label: Option<String>,
 ) -> Result<NativeContextMenuResult, String> {
     let window = layer_window::main_window(&app)?;
 
@@ -194,12 +195,12 @@ pub fn invoke_native_desktop_context_menu_command(
         let hwnd = window
             .hwnd()
             .map_err(|error| format!("failed to get main window hwnd: {error}"))?;
-        platform::invoke_native_desktop_context_menu_command(hwnd, command_id)
+        platform::invoke_native_desktop_context_menu_command(hwnd, command_id, label.as_deref())
     }
 
     #[cfg(not(windows))]
     {
-        let _ = (window, command_id);
+        let _ = (window, command_id, label);
         Ok(NativeContextMenuResult {
             invoked: false,
             verb: None,

@@ -191,11 +191,7 @@ export class DesktopApp {
       onWallpaperGlassChange(() => anchorGlassSurfaces(this.grid, ".folder-cover"));
       startWallpaperGlass();
       this.desktopSync.scheduleFullDesktopItemLoad();
-      window.setTimeout(() => {
-        this.menus.loadNativeDesktopMenuItems().catch((error) => {
-          console.warn("Unable to load the native desktop menu", error);
-        });
-      }, 300);
+      this.menus.nativeMenu.preload();
     } catch (error) {
       console.error("BuzzDesk failed to boot", error);
       await this.logDesktopDiagnostics("boot failed");

@@ -50,7 +50,7 @@ export class SettingsPanel {
       this.app.store.updateSettings({
         contextMenu: reorderContextMenuItem(
           this.app.store.getSettings().contextMenu,
-          this.app.menus.cachedDesktopNativeMenuItems ?? [],
+          this.app.menus.nativeMenu.items ?? [],
           key,
           targetKey,
           placement,
@@ -241,7 +241,7 @@ export class SettingsPanel {
 
   private contextMenuSettingsItems(parentKey: string | null = null) {
     return desktopContextMenuSettingsItems(
-      this.app.menus.cachedDesktopNativeMenuItems ?? [],
+      this.app.menus.nativeMenu.items ?? [],
       this.app.store.getSettings().contextMenu,
       parentKey
     );
@@ -253,7 +253,7 @@ export class SettingsPanel {
       return null;
     }
 
-    return desktopContextMenuPool(this.app.menus.cachedDesktopNativeMenuItems ?? []).find((item) => item.key === parentKey)?.label ?? null;
+    return desktopContextMenuPool(this.app.menus.nativeMenu.items ?? []).find((item) => item.key === parentKey)?.label ?? null;
   }
 
   // Click handlers by the element they answer, tried in order against the
@@ -346,7 +346,7 @@ export class SettingsPanel {
         this.app.store.updateSettings({
           contextMenu: updateContextMenuItemPlacement(
             this.app.store.getSettings().contextMenu,
-            this.app.menus.cachedDesktopNativeMenuItems ?? [],
+            this.app.menus.nativeMenu.items ?? [],
             key,
             placement,
             this.settingsContextMenuParentKey
@@ -361,7 +361,7 @@ export class SettingsPanel {
         this.app.store.updateSettings({
           contextMenu: toggleContextMenuSeparator(
             this.app.store.getSettings().contextMenu,
-            this.app.menus.cachedDesktopNativeMenuItems ?? [],
+            this.app.menus.nativeMenu.items ?? [],
             key,
             this.settingsContextMenuParentKey
           )
@@ -581,7 +581,7 @@ export class SettingsPanel {
 
   async refreshContextMenuSettingsPool() {
     try {
-      await this.app.menus.loadNativeDesktopMenuItems();
+      await this.app.menus.nativeMenu.load();
     } catch (error) {
       console.warn("Unable to refresh context menu settings pool", error);
       return;

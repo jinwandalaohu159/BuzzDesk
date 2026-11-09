@@ -85,6 +85,7 @@ mod instance;
 mod items;
 mod legacy_install;
 mod menu_forwarder;
+mod menu_items;
 mod notification;
 mod process;
 mod shell_ops;
@@ -93,8 +94,8 @@ mod util;
 
 #[allow(unused_imports)]
 use self::{
-    clipboard::*, context_menu::*, desktop_layer::*, diagnostics::*, icons::*, items::*, menu_forwarder::*,
-    shell_ops::*, startup::*, util::*,
+    clipboard::*, context_menu::*, desktop_layer::*, diagnostics::*, icons::*, items::*,
+    menu_forwarder::*, menu_items::*, shell_ops::*, startup::*, util::*,
 };
 
 pub use self::context_menu::{invoke_native_desktop_context_menu_command, list_native_desktop_context_menu, show_native_item_context_menu};

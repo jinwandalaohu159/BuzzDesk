@@ -7,10 +7,10 @@ import {
   pasteDesktopItems,
   showDesktopItemProperties,
   invokeNativeDesktopContextMenuCommand,
-  listNativeDesktopContextMenu,
   showNativeItemContextMenu
 } from "../../system/desktopApi";
 import { clampContextSubmenus, contextMenuSafeArea } from "./contextMenuPlacement";
+import { NativeDesktopMenu } from "./nativeDesktopMenu";
 import type {
   AppNode,
   DesktopContextMenuAction,
@@ -43,8 +43,7 @@ export type ContextMenuControllerHost = Pick<
 export class ContextMenuController {
   contextMenu: ContextMenuState | null = null;
   private contextOverlayVersion = 0;
-  cachedDesktopNativeMenuItems: NativeContextMenuItem[] | null = null;
-  private desktopNativeMenuLoad: Promise<NativeContextMenuItem[]> | null = null;
+  readonly nativeMenu = new NativeDesktopMenu();
 
   constructor(private readonly app: ContextMenuControllerHost) {}
 
@@ -128,7 +127,7 @@ export class ContextMenuController {
 
     try {
       if (Number.isFinite(nativeCommandId) && menu.type === "desktop") {
-        const result = await invokeNativeDesktopContextMenuCommand(nativeCommandId);
+        const result = await invokeNativeDesktopContextMenuCommand(nativeCommandId, button?.dataset.nativeLabel);
         if (result.invoked) {
           await this.app.desktopSync.syncAfterNativeShellCommand();
         }
@@ -377,22 +376,24 @@ export class ContextMenuController {
 
   async openCustomDesktopContextMenu(x: number, y: number) {
     const requestVersion = this.beginContextOverlayRequest();
-    if (this.cachedDesktopNativeMenuItems) {
+    if (this.nativeMenu.items) {
       this.contextMenu = {
         type: "desktop",
         x,
         y,
-        nativeItems: this.cachedDesktopNativeMenuItems
+        nativeItems: this.nativeMenu.items
       };
       this.renderContextMenu();
-      void this.loadNativeDesktopMenuItems().catch((error) => {
-        console.warn("Unable to refresh native desktop context menu", error);
-      });
+      void this.nativeMenu.load()
+        .then((nativeItems) => this.refreshOpenDesktopMenu(requestVersion, nativeItems))
+        .catch((error) => {
+          console.warn("Unable to refresh native desktop context menu", error);
+        });
       return;
     }
 
     try {
-      const nativeItems = await this.loadNativeDesktopMenuItems();
+      const nativeItems = await this.nativeMenu.load();
       if (!this.isCurrentContextOverlayRequest(requestVersion)) {
         return;
       }
@@ -410,21 +411,22 @@ export class ContextMenuController {
     }
   }
 
-  loadNativeDesktopMenuItems() {
-    if (this.desktopNativeMenuLoad) {
-      return this.desktopNativeMenuLoad;
+  // Shell extensions keep registering for a while after the desktop menu is
+  // first asked for, so the cached listing can be short. When the fresh one
+  // differs and the menu the user opened from the cache is still showing,
+  // show the complete one in its place.
+  private refreshOpenDesktopMenu(requestVersion: number, nativeItems: NativeContextMenuItem[]) {
+    const menu = this.contextMenu;
+    if (
+      !this.isCurrentContextOverlayRequest(requestVersion) ||
+      menu?.type !== "desktop" ||
+      JSON.stringify(menu.nativeItems) === JSON.stringify(nativeItems)
+    ) {
+      return;
     }
 
-    this.desktopNativeMenuLoad = listNativeDesktopContextMenu()
-      .then((items) => {
-        this.cachedDesktopNativeMenuItems = items;
-        return items;
-      })
-      .finally(() => {
-        this.desktopNativeMenuLoad = null;
-      });
-
-    return this.desktopNativeMenuLoad;
+    this.contextMenu = { ...menu, nativeItems };
+    this.renderContextMenu();
   }
 }
 

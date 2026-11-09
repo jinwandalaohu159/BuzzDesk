@@ -201,14 +201,17 @@ export async function listNativeDesktopContextMenu() {
   return invoke<NativeContextMenuItem[]>("list_native_desktop_context_menu");
 }
 
-export async function invokeNativeDesktopContextMenuCommand(commandId: number) {
+// `label` is what the user clicked; the native side uses it to find the same
+// command even when the menu's numbering moved since it was listed.
+export async function invokeNativeDesktopContextMenuCommand(commandId: number, label?: string) {
   const invoke = await getInvoke();
   if (!invoke) {
     return { invoked: false, verb: null };
   }
 
   const result = await invoke<boolean | NativeContextMenuResult>("invoke_native_desktop_context_menu_command", {
-    commandId
+    commandId,
+    label: label ?? null
   });
   return normalizeNativeContextMenuResult(result);
 }

@@ -167,6 +167,7 @@ function renderContextMenuButton(item: RenderContextMenuItem, hasSubmenu = false
 
   if (item.nativeCommandId !== undefined) {
     button.dataset.nativeCommandId = String(item.nativeCommandId);
+    button.dataset.nativeLabel = item.label;
   }
 
   if (hasSubmenu) {

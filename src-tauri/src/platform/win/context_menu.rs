@@ -1,10 +1,6 @@
 // Native Explorer context menus for desktop items and the desktop background.
 use super::*;
 
-// Command id range handed to IContextMenu::QueryContextMenu.
-const FIRST_MENU_COMMAND_ID: u32 = 1;
-const LAST_MENU_COMMAND_ID: u32 = 0x7fff;
-
 pub fn show_native_item_context_menu(
     launch_id: &str,
     owner: HWND,
@@ -26,6 +22,7 @@ pub fn list_native_desktop_context_menu(
 pub fn invoke_native_desktop_context_menu_command(
     owner: HWND,
     command_id: u32,
+    label: Option<&str>,
 ) -> Result<NativeContextMenuResult, String> {
     // Offsets we handed to QueryContextMenu (ids 1..=0x7fff, minus one). The id
     // goes into CMINVOKECOMMANDINFO.lpVerb, where anything >= 0x10000 would be
@@ -34,7 +31,7 @@ pub fn invoke_native_desktop_context_menu_command(
         return Err(format!("unknown context menu command {command_id}"));
     }
     let _com = ComApartment::enter();
-    unsafe { invoke_native_desktop_context_menu_command_inner(owner, command_id) }
+    unsafe { invoke_native_desktop_context_menu_command_inner(owner, command_id, label) }
 }
 
 pub(super) unsafe fn list_native_desktop_context_menu_inner(
@@ -49,17 +46,26 @@ pub(super) unsafe fn list_native_desktop_context_menu_inner(
 pub(super) unsafe fn invoke_native_desktop_context_menu_command_inner(
     owner: HWND,
     command_id: u32,
+    label: Option<&str>,
 ) -> Result<NativeContextMenuResult, String> {
     let (context_menu, menu) = desktop_context_menu(owner)?;
     initialize_native_context_menu_submenus(&context_menu, menu, 1);
-    // The menu is rebuilt for every call; only invoke a command it still has
-    // (shell extensions may number their items differently from the listing).
-    if !menu_has_command(menu, command_id + FIRST_MENU_COMMAND_ID) {
+    // The menu is rebuilt for every call and its numbering can differ from the
+    // listing the user clicked in: shell extensions register in the background
+    // after a process first asks for the desktop menu, and each one that
+    // arrives shifts the ids after it. Run the command the user actually saw.
+    let Some(command) = resolve_menu_command(menu, command_id + FIRST_MENU_COMMAND_ID, label)
+    else {
         let _ = DestroyMenu(menu);
         return Err(format!("context menu command {command_id} is no longer available"));
-    }
-    let result =
-        invoke_context_menu_command(&context_menu, owner, command_id as usize, false, None);
+    };
+    let result = invoke_context_menu_command(
+        &context_menu,
+        owner,
+        (command - FIRST_MENU_COMMAND_ID) as usize,
+        false,
+        None,
+    );
     let _ = DestroyMenu(menu);
     result
 }
@@ -255,146 +261,6 @@ pub(super) unsafe fn initialize_native_submenu(context_menu: &IContextMenu, subm
     if let Ok(context_menu2) = context_menu.cast::<IContextMenu2>() {
         let _ = context_menu2.HandleMenuMsg(message, wparam, lparam);
     }
-}
-
-pub(super) unsafe fn native_menu_label(menu: HMENU, item: u32, by_position: bool) -> Option<String> {
-    let mut info = MENUITEMINFOW {
-        cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-        fMask: MIIM_STRING,
-        ..Default::default()
-    };
-
-    if GetMenuItemInfoW(menu, item, by_position, &mut info).is_err() || info.cch == 0 {
-        return None;
-    }
-
-    let mut buffer = vec![0u16; info.cch as usize + 1];
-    info.dwTypeData = PWSTR(buffer.as_mut_ptr());
-    info.cch = buffer.len() as u32;
-    if GetMenuItemInfoW(menu, item, by_position, &mut info).is_err() {
-        return None;
-    }
-
-    let len = buffer
-        .iter()
-        .position(|value| *value == 0)
-        .unwrap_or(buffer.len());
-    let label = clean_native_menu_label(&String::from_utf16_lossy(&buffer[..len]));
-    if label.is_empty() {
-        None
-    } else {
-        Some(label)
-    }
-}
-
-// Whether the menu (or one of its submenus) has an item with this command id.
-pub(super) unsafe fn menu_has_command(menu: HMENU, command: u32) -> bool {
-    let mut info = MENUITEMINFOW {
-        cbSize: std::mem::size_of::<MENUITEMINFOW>() as u32,
-        fMask: MIIM_ID,
-        ..Default::default()
-    };
-    GetMenuItemInfoW(menu, command, false, &mut info).is_ok() && info.wID == command
-}
-
-pub(super) unsafe fn native_menu_item_label(menu: HMENU, index: u32) -> String {
-    native_menu_label(menu, index, true).unwrap_or_default()
-}
-
-pub(super) unsafe fn native_menu_command_label(menu: HMENU, command: u32) -> Option<String> {
-    native_menu_label(menu, command, false)
-}
-
-pub(super) fn clean_native_menu_label(label: &str) -> String {
-    label
-        .split('\t')
-        .next()
-        .unwrap_or(label)
-        .replace("&&", "\u{0}")
-        .replace('&', "")
-        .replace('\u{0}', "&")
-        .trim()
-        .to_string()
-}
-
-pub(super) fn native_context_menu_item_key(
-    verb: Option<&str>,
-    label: &str,
-    parent_path: &[String],
-    index: i32,
-) -> String {
-    if let Some(verb) = verb {
-        if !verb.is_empty() {
-            return format!("native:verb:{}", stable_menu_key_part(verb));
-        }
-    }
-
-    let mut parts: Vec<String> = parent_path
-        .iter()
-        .filter(|part| !part.is_empty())
-        .map(|part| stable_menu_key_part(part))
-        .collect();
-    if !label.is_empty() {
-        parts.push(stable_menu_key_part(label));
-    }
-    if parts.is_empty() {
-        parts.push(format!("item-{index}"));
-    }
-
-    format!("native:label:{}", parts.join("/"))
-}
-
-pub(super) fn stable_menu_key_part(value: &str) -> String {
-    let key: String = value
-        .trim()
-        .to_lowercase()
-        .chars()
-        .map(|character| {
-            if character.is_alphanumeric() {
-                character
-            } else {
-                '-'
-            }
-        })
-        .collect();
-    let compact = key
-        .split('-')
-        .filter(|part| !part.is_empty())
-        .collect::<Vec<_>>()
-        .join("-");
-
-    if compact.is_empty() {
-        "item".to_string()
-    } else {
-        compact
-    }
-}
-
-pub(super) fn collapse_menu_separators(items: Vec<NativeContextMenuItem>) -> Vec<NativeContextMenuItem> {
-    let mut collapsed = Vec::new();
-    let mut previous_separator = true;
-
-    for item in items {
-        if item.separator {
-            if !previous_separator {
-                collapsed.push(item);
-            }
-            previous_separator = true;
-            continue;
-        }
-
-        previous_separator = false;
-        collapsed.push(item);
-    }
-
-    while collapsed
-        .last()
-        .is_some_and(|item: &NativeContextMenuItem| item.separator)
-    {
-        collapsed.pop();
-    }
-
-    collapsed
 }
 
 pub(super) unsafe fn invoke_context_menu_command(
